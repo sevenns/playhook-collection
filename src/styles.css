@@ -328,6 +328,16 @@ html:not(.cursor-hidden) .rect-button:hover,
   outline-offset: calc(4 * var(--px));
 }
 
+/* …but never on top of our OWN highlight. Chromium decides :focus-visible from the last input
+   modality, so the focus() calls behind the arrow keys and the gamepad match it too — and the button
+   ended up wearing both the d2 fill and a ring around it. controls.ts marks the elements it focuses
+   itself; a real Tab leaves no mark and still rings. */
+.rect-button.no-focus-ring:focus-visible,
+.text-button.no-focus-ring:focus-visible,
+.play-button.no-focus-ring:focus-visible {
+  outline: none;
+}
+
 /* More: three dots, 56×16 in the mockup, centered in the 92×92 button. overflow:visible so the last
    dot (its right edge sits exactly on the viewBox boundary) isn't clipped by the SVG viewport. */
 .icon-more {

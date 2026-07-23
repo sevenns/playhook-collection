@@ -109,6 +109,26 @@ export function createControls(deps: ControlsDeps): Controls {
     focusedVisual: () => stackItems()[stackIndex]?.visual ?? null,
   });
 
+  // ── Moving DOM focus ourselves ───────────────────────────────────────────────
+
+  // Every focus move WE make — an arrow key, the gamepad, closing the popup — must not draw the
+  // browser's own focus ring, because `.is-focused` is already painting one indicator and two rings
+  // around the same button is just noise. Chromium decides :focus-visible from the last input
+  // MODALITY, not from who called focus(): our programmatic focus() lands right after a key press, so
+  // it matches. Marking the element lets the CSS opt out; the mark is dropped again on blur, so a
+  // genuine Tab back onto the same control still rings — which is the whole reason the ring exists
+  // here (see the :focus-visible rule in styles.css).
+  const QUIET_FOCUS_CLASS = 'no-focus-ring';
+
+  function focusQuietly(element: HTMLElement): void {
+    element.classList.add(QUIET_FOCUS_CLASS);
+    element.focus({ preventScroll: true });
+  }
+
+  document.addEventListener('focusout', (event) => {
+    if (event.target instanceof HTMLElement) event.target.classList.remove(QUIET_FOCUS_CLASS);
+  });
+
   // ── The popup's focus stack ──────────────────────────────────────────────────
 
   function stackItems(): readonly StackItem[] {
@@ -127,7 +147,7 @@ export function createControls(deps: ControlsDeps): Controls {
       item.visual.classList.toggle('is-focused', item === focused);
     if (focused !== undefined) {
       focused.visual.scrollIntoView({ block: 'nearest' });
-      if (moveDomFocus) focused.focusTarget.focus({ preventScroll: true });
+      if (moveDomFocus) focusQuietly(focused.focusTarget);
     }
     gameList.updateMarquee();
     // Reflect the new focus on the scrollbar (it hides when focus leaves the list). NOT an activity
@@ -222,7 +242,7 @@ export function createControls(deps: ControlsDeps): Controls {
     router.setCollectionVisible(false);
     applyStackFocus(); // clear the stack highlight
     applyFocus(); // restore the bar highlight
-    moreButton.focus({ preventScroll: true }); // `inert` would otherwise strand focus on <body>
+    focusQuietly(moreButton); // `inert` would otherwise strand focus on <body>
   }
 
   // Back is a stack, not a single step: the game list falls back to the menu, the menu closes, and a
@@ -372,7 +392,7 @@ export function createControls(deps: ControlsDeps): Controls {
     if (item === searchItem) {
       // There is no on-screen keyboard and there will not be one: a gamepad browses, a keyboard types.
       // A on the field just puts the caret in it.
-      searchField.focus({ preventScroll: true });
+      focusQuietly(searchField);
       return;
     }
     if (item === githubItem) {
@@ -476,7 +496,7 @@ export function createControls(deps: ControlsDeps): Controls {
   searchBox.addEventListener('mousedown', (event) => {
     if (event.target === searchField) return;
     event.preventDefault();
-    searchField.focus({ preventScroll: true });
+    focusQuietly(searchField);
   });
   searchField.addEventListener('input', () => applySearch());
 
