@@ -1,0 +1,19 @@
+{
+  "title": "Need For Speed: Most Wanted",
+  "author": "sevenns",
+  "verifiedAt": "2026-07-23",
+  "tested": ["win32", "linux"],
+  "preview": {
+    "hero": [
+      "assets/hero1.png",
+      "assets/hero2.jpg"
+    ],
+    "sounds": {
+      "play": "assets/play.wav",
+      "navigate": "assets/move.wav",
+      "button": "assets/button.wav",
+      "back": "assets/back.wav"
+    },
+    "music": "assets/theme.mp3"
+  }
+}

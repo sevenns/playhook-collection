@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "nfs-mw-2005",
+  "title": "Need For Speed: Most Wanted",
+  "executable": "speed.exe",
+  "install": {
+    "installer": "setup/Setup.exe",
+    "type": "inno",
+    "runAsAdmin": true
+  },
+  "heroImage": [
+    "assets/hero1.png",
+    "assets/hero2.jpg"
+  ],
+  "sounds": {
+    "play": "assets/play.wav",
+    "navigate": "assets/move.wav",
+    "button": "assets/button.wav",
+    "back": "assets/back.wav"
+  },
+  "backgroundMusic": "assets/theme.mp3"
+}

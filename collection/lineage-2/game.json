@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "lineage-2",
+  "title": "Lineage 2: The Chaotic Throne",
+  "executable": "Asterios/Asterios.exe",
+  "runAsAdmin": true,
+  "watchProcesses": ["AsteriosGame.exe", "l2.exe"],
+  "heroImage": [
+    "assets/hero.jpg",
+    "assets/wp2662643-chaotic-wallpaper-hd.jpg",
+    "assets/wp4118296-lineage-2-wallpapers.jpg"
+  ],
+  "sounds": {
+    "play": "assets/button.wav",
+    "navigate": "assets/move.wav",
+    "button": "assets/button.wav",
+    "back": "assets/back.wav"
+  },
+  "backgroundMusic": "assets/theme.mp3"
+}
