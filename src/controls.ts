@@ -109,25 +109,38 @@ export function createControls(deps: ControlsDeps): Controls {
     focusedVisual: () => stackItems()[stackIndex]?.visual ?? null,
   });
 
-  // ── Moving DOM focus ourselves ───────────────────────────────────────────────
-
-  // Every focus move WE make — an arrow key, the gamepad, closing the popup — must not draw the
-  // browser's own focus ring, because `.is-focused` is already painting one indicator and two rings
-  // around the same button is just noise. Chromium decides :focus-visible from the last input
-  // MODALITY, not from who called focus(): our programmatic focus() lands right after a key press, so
-  // it matches. Marking the element lets the CSS opt out; the mark is dropped again on blur, so a
-  // genuine Tab back onto the same control still rings — which is the whole reason the ring exists
-  // here (see the :focus-visible rule in styles.css).
-  const QUIET_FOCUS_CLASS = 'no-focus-ring';
-
-  function focusQuietly(element: HTMLElement): void {
-    element.classList.add(QUIET_FOCUS_CLASS);
-    element.focus({ preventScroll: true });
+  // ── Focus-ring modality ───────────────────────────────────────────────────────
+  //
+  // The browser's :focus-visible ring is the keyboard user's marker — it must survive the 5s idle
+  // timeout (which only dims OUR .is-focused fill, never DOM focus), so it can't simply be switched off.
+  // But it must NOT show for a mouse or gamepad user, whose selection the fill already marks. Chromium
+  // decides :focus-visible from the last input MODALITY and gets two things wrong for us: our
+  // programmatic focus() lands right after a nav key and reads as "keyboard", and after an alt-tab it
+  // re-applies the ring to whatever it restores focus to. So we own the modality: only a real Tab arms
+  // it (html.kbd-focus), and a pointer, a gamepad/arrow move, or a focus WE perform disarms it. One flag
+  // as the source of truth is what stops switching browser tabs from resurrecting the ring — the earlier
+  // per-element mark was cleared on focusout (tab-away) and never restored on the browser's focus-back.
+  function setKeyboardMode(on: boolean): void {
+    document.documentElement.classList.toggle('kbd-focus', on);
   }
 
-  document.addEventListener('focusout', (event) => {
-    if (event.target instanceof HTMLElement) event.target.classList.remove(QUIET_FOCUS_CLASS);
-  });
+  // A real Tab is the only thing that arms the ring. Capture phase so it wins regardless of target, and
+  // never preventDefault — Tab must still move focus natively.
+  window.addEventListener(
+    'keydown',
+    (event) => {
+      if (event.key === 'Tab') setKeyboardMode(true);
+    },
+    true,
+  );
+  // Any pointer press means a mouse user — drop the ring.
+  window.addEventListener('pointerdown', () => setKeyboardMode(false), true);
+
+  /** Focus an element WE chose (not the user Tabbing): the ring must not follow. */
+  function focusQuietly(element: HTMLElement): void {
+    setKeyboardMode(false);
+    element.focus({ preventScroll: true });
+  }
 
   // ── The popup's focus stack ──────────────────────────────────────────────────
 
@@ -431,9 +444,12 @@ export function createControls(deps: ControlsDeps): Controls {
     }, IDLE_MS);
   }
 
-  /** Gamepad or keyboard navigation: the user has visibly left the mouse alone, so hide the pointer. */
+  /** Gamepad or keyboard navigation: the user has visibly left the mouse alone, so hide the pointer.
+   *  This is our OWN navigation (WASD/arrows/gamepad), which paints the .is-focused fill — so it also
+   *  disarms the native ring, which is reserved for a plain Tab. */
   function noteNavActivity(): void {
     setCursorHidden(true);
+    setKeyboardMode(false);
     armIdleTimer();
     gameList.noteActivity();
   }

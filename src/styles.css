@@ -224,10 +224,7 @@ html:not(.cursor-hidden) .play-button:hover,
   transform: scale(0.9);
 }
 
-.play-button:focus-visible {
-  outline: calc(3 * var(--px)) solid var(--d2);
-  outline-offset: calc(4 * var(--px));
-}
+/* The keyboard focus ring (gated on html.kbd-focus) is defined once, next to .rect-button/.text-button. */
 
 /* Pulse ring — a rounded square echoing the button (kept on hover/focus per design). */
 .play-button::after {
@@ -315,27 +312,22 @@ html:not(.cursor-hidden) .rect-button:hover,
 
 /* The launcher suppresses the native ring outright — .is-focused is its single focus visual, and a
    kiosk has no Tab key. BROWSER: a public page does, and a keyboard user who does not know about the
-   arrow keys would otherwise navigate blind. So the ring comes back for :focus-visible only (a mouse
-   click still leaves no lingering outline), drawn in the accent so it reads over the hero. */
+   arrow keys would otherwise navigate blind. So the ring comes back — but ONLY while the user is
+   actually driving with Tab (html.kbd-focus, set from controls.ts), never for a mouse, a gamepad, or a
+   focus WE moved: those already show the .is-focused fill, and a ring on top is just noise. Gating on
+   our own flag rather than on :focus-visible alone is what keeps an alt-tab from resurrecting the ring
+   — the browser re-applies :focus-visible to whatever it restores focus to, our flag does not. */
 .rect-button,
-.text-button {
+.text-button,
+.play-button {
   outline: none;
 }
 
-.rect-button:focus-visible,
-.text-button:focus-visible {
+html.kbd-focus .rect-button:focus-visible,
+html.kbd-focus .text-button:focus-visible,
+html.kbd-focus .play-button:focus-visible {
   outline: calc(3 * var(--px)) solid var(--d2);
   outline-offset: calc(4 * var(--px));
-}
-
-/* …but never on top of our OWN highlight. Chromium decides :focus-visible from the last input
-   modality, so the focus() calls behind the arrow keys and the gamepad match it too — and the button
-   ended up wearing both the d2 fill and a ring around it. controls.ts marks the elements it focuses
-   itself; a real Tab leaves no mark and still rings. */
-.rect-button.no-focus-ring:focus-visible,
-.text-button.no-focus-ring:focus-visible,
-.play-button.no-focus-ring:focus-visible {
-  outline: none;
 }
 
 /* More: three dots, 56×16 in the mockup, centered in the 92×92 button. overflow:visible so the last
