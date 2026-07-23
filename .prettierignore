@@ -1,0 +1,11 @@
+node_modules
+dist
+package-lock.json
+*.md
+
+# Generated verbatim from playhook's zod schema — reformatting it would show up as a diff on every
+# re-dump. See schema/SOURCE.md.
+schema/game.schema.json
+
+# Binary-ish vendored assets.
+public/fonts

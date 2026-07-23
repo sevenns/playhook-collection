@@ -1,0 +1,358 @@
+{
+  "oneOf": [
+    {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "type": "number",
+          "const": 1
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._-]+$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "executable": {
+          "type": "string",
+          "minLength": 1
+        },
+        "args": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "runAsAdmin": {
+          "default": false,
+          "type": "boolean"
+        },
+        "watchProcesses": {
+          "minItems": 1,
+          "maxItems": 16,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._ -]+\\.exe$"
+          }
+        },
+        "heroImage": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          ]
+        },
+        "saveOnCard": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pcSavePath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "launchTimeoutSec": {
+          "default": 30,
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "killTimeoutSec": {
+          "default": 60,
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "sounds": {
+          "type": "object",
+          "properties": {
+            "play": {
+              "type": "string",
+              "minLength": 1
+            },
+            "navigate": {
+              "type": "string",
+              "minLength": 1
+            },
+            "button": {
+              "type": "string",
+              "minLength": 1
+            },
+            "back": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "backgroundMusic": {
+          "type": "string",
+          "minLength": 1
+        },
+        "winetricks": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.=-]+$"
+          }
+        },
+        "umuGameId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]+$"
+        },
+        "install": {
+          "type": "object",
+          "properties": {
+            "installer": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "nsis",
+                "inno",
+                "custom",
+                "copy"
+              ]
+            },
+            "runAsAdmin": {
+              "default": false,
+              "type": "boolean"
+            },
+            "args": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "winetricks": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.=-]+$"
+              }
+            }
+          },
+          "required": [
+            "installer",
+            "type"
+          ]
+        },
+        "steam": {
+          "type": "object",
+          "properties": {
+            "appid": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "appid"
+          ]
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "id",
+        "title"
+      ]
+    },
+    {
+      "type": "array",
+      "items": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "number",
+            "const": 1
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._-]+$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "executable": {
+            "type": "string",
+            "minLength": 1
+          },
+          "args": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "runAsAdmin": {
+            "default": false,
+            "type": "boolean"
+          },
+          "watchProcesses": {
+            "minItems": 1,
+            "maxItems": 16,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._ -]+\\.exe$"
+            }
+          },
+          "heroImage": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            ]
+          },
+          "saveOnCard": {
+            "type": "string",
+            "minLength": 1
+          },
+          "pcSavePath": {
+            "type": "string",
+            "minLength": 1
+          },
+          "launchTimeoutSec": {
+            "default": 30,
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "killTimeoutSec": {
+            "default": 60,
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "sounds": {
+            "type": "object",
+            "properties": {
+              "play": {
+                "type": "string",
+                "minLength": 1
+              },
+              "navigate": {
+                "type": "string",
+                "minLength": 1
+              },
+              "button": {
+                "type": "string",
+                "minLength": 1
+              },
+              "back": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "backgroundMusic": {
+            "type": "string",
+            "minLength": 1
+          },
+          "winetricks": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.=-]+$"
+            }
+          },
+          "umuGameId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]+$"
+          },
+          "install": {
+            "type": "object",
+            "properties": {
+              "installer": {
+                "type": "string",
+                "minLength": 1
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "nsis",
+                  "inno",
+                  "custom",
+                  "copy"
+                ]
+              },
+              "runAsAdmin": {
+                "default": false,
+                "type": "boolean"
+              },
+              "args": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "winetricks": {
+                "default": [],
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_.=-]+$"
+                }
+              }
+            },
+            "required": [
+              "installer",
+              "type"
+            ]
+          },
+          "steam": {
+            "type": "object",
+            "properties": {
+              "appid": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "appid"
+            ]
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "id",
+          "title"
+        ]
+      },
+      "minItems": 1
+    }
+  ]
+}

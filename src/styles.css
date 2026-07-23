@@ -1,0 +1,471 @@
+/* Ported from playhook @ c348f4246752286b594c8a8eddd2253ea88b0f12 : src/renderer/styles.css
+   Everything game-specific (Play button, info panel, confirm/error views, the select-game list) is gone;
+   what remains is the launcher's empty screen, kept 1:1 except for the browser-specific fixes marked
+   BROWSER below. See PORTED-FROM.md. */
+
+/* Bundled UI font: M PLUS Rounded 1c. BROWSER: the launcher ships the full CJK .ttf files (13.7 MB for
+   four weights); a public site cannot. These are Google Fonts' own latin woff2 subsets (~21 KB each),
+   self-hosted so the page never touches a third-party origin (and font-src stays 'self'). */
+@font-face {
+  font-family: 'M PLUS Rounded 1c';
+  font-style: normal;
+  font-weight: 300;
+  font-display: swap;
+  src: url('./fonts/MPLUSRounded1c-Light.woff2') format('woff2');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'M PLUS Rounded 1c';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fonts/MPLUSRounded1c-Regular.woff2') format('woff2');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'M PLUS Rounded 1c';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('./fonts/MPLUSRounded1c-Medium.woff2') format('woff2');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'M PLUS Rounded 1c';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url('./fonts/MPLUSRounded1c-ExtraBold.woff2') format('woff2');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+:root {
+  /* One design pixel (mockup is 1920x1080). BROWSER: the launcher pins this to vh alone — safe there,
+     since its window is always fullscreen 16:9 or wider. A browser window can be any shape, and a
+     vh-only pixel lets the bar run off the side of a narrow one. Taking the SMALLER of "1/1080 of the
+     height" and "1/1920 of the width" keeps the mockup's proportions and always fits. */
+  --px: min(0.0925926vh, 0.0520833vw);
+  --bg: #101014;
+  /* Palette fallbacks; #app gets --d1/--d2 from the hero background's two dominant colors.
+     BROWSER: the launcher ships a generic pair here, because its hero changes with every card — so for
+     the first ~100-300ms (until the canvas read finishes) it shows colors that then jump. This site has
+     exactly one, unchanging wallpaper, so these ARE its computed colors, read back from
+     dominant-color.ts against public/wallpaper.webp. The runtime pass then confirms the same values and
+     nothing shifts. Recompute them if the wallpaper is ever replaced. */
+  --d1: rgb(12, 10, 27);
+  --d2: rgb(131, 111, 149);
+  --fg: #ffffff;
+}
+
+* {
+  box-sizing: border-box;
+  /* Kiosk/launcher UI: no text selection and no text caret cursor. */
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+
+/* Cursor hidden while the gamepad is in use (class toggled from controls.ts). The descendant selector's
+   specificity beats the per-element cursor rules (buttons' pointer); a real mouse move restores it.
+   BROWSER: the launcher ALSO hides the cursor on a 5s idle timeout — deliberately dropped here, since a
+   web page that eats your pointer while you read is an antipattern. Gamepad use is the only trigger. */
+html.cursor-hidden,
+html.cursor-hidden * {
+  cursor: none;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: 'M PLUS Rounded 1c', 'Segoe UI', system-ui, sans-serif;
+  color: var(--fg);
+  background: var(--bg);
+}
+
+#app {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  /* BROWSER: 100vh ignores the collapsing address bar on mobile Safari/Chrome, so the bar jumps as it
+     hides. dvh tracks the real viewport; the vh line above stays as the fallback. */
+  height: 100dvh;
+  background-color: var(--bg);
+  overflow: hidden;
+  /* Establish a stacking context so the z-index:-1 hero paints ABOVE #app's own background-color
+     (otherwise the opaque bg covers it → black screen) but below the UI. */
+  isolation: isolate;
+}
+
+/* Hero background: two stacked layers inside #hero, cross-faded GTA-5-style. The z-index lives ONLY on
+   the container, so the WHOLE hero sits one stacking level below the UI — the layers themselves carry no
+   z-index (they stack by DOM order inside #hero), which sidesteps the opacity-stacking-context pitfall. */
+#hero {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+}
+
+/* Each hero layer paints one image (background-image set per-layer from JS) and slowly drifts to one
+   side and back (Ken Burns / GTA ping-pong), always. The direction (--pan-x) is randomized per image
+   from JS on the incoming layer. Both layers run bg-pan perpetually; opacity 0/1 (toggled via
+   .is-active) cross-fades between them. NOTE: opacity:0 does NOT pause the animation, so JS
+   force-restarts bg-pan on the incoming layer to start its drift from zero. */
+.hero-layer {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  opacity: 0;
+  transition: opacity 1s ease;
+  transform-origin: center;
+  will-change: transform, opacity;
+  animation: bg-pan 30s ease-in-out infinite alternate;
+}
+
+.hero-layer.is-active {
+  opacity: 1;
+}
+
+/* Ping-pong drift + a gentle zoom in/out, synced over the cycle (Ken Burns). The min scale (1.06)
+   keeps headroom so the small ±1.5% pan never reveals the edges. */
+@keyframes bg-pan {
+  from {
+    transform: scale(1.06) translateX(0);
+  }
+  to {
+    transform: scale(1.12) translateX(var(--pan-x, 1.5%));
+  }
+}
+
+/* ── Bottom bar ──────────────────────────────────────────────────────────── */
+
+#bottom-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: calc(300 * var(--px));
+  /* Vertical gradient of d1: transparent at top → 0.75 → solid at bottom (mockup stops). */
+  background: linear-gradient(
+    to top,
+    var(--d1) 0%,
+    color-mix(in srgb, var(--d1) 75%, transparent) 58%,
+    transparent 100%
+  );
+  /* BROWSER: the launcher only writes the unprefixed property (Chromium is all it targets). Safari did
+     not ship it unprefixed until 18, and this page is public. */
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  -webkit-mask-image: linear-gradient(to top, #000 0%, #000 55%, transparent 100%);
+  mask-image: linear-gradient(to top, #000 0%, #000 55%, transparent 100%);
+  transition: opacity 0.3s ease;
+}
+
+.bar-content {
+  position: absolute;
+  left: calc(50 * var(--px));
+  right: calc(50 * var(--px));
+  bottom: calc(50 * var(--px));
+  height: calc(92 * var(--px));
+}
+
+/* ── Rect (More) button — normal: no background, content d2; fills with d2 on hover/focus ── */
+
+.rect-button {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: calc(92 * var(--px));
+  height: calc(92 * var(--px));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: calc(10 * var(--px));
+  background: transparent;
+  color: var(--d2);
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease,
+    opacity 0.3s ease,
+    transform 0.12s ease;
+}
+
+/* :hover gated on a live cursor — see the note on .text-button:hover. */
+html:not(.cursor-hidden) .rect-button:hover,
+.rect-button.is-focused {
+  background: var(--d2);
+  color: var(--d1);
+}
+
+/* Press feedback (mouse :active, or gamepad A via .is-pressed): smooth scale down. */
+.rect-button:active,
+.rect-button.is-pressed,
+.text-button:active,
+.text-button.is-pressed {
+  transform: scale(0.9);
+}
+
+/* The launcher suppresses the native ring outright — .is-focused is its single focus visual, and a
+   kiosk has no Tab key. BROWSER: a public page does, and a keyboard user who does not know about the
+   arrow keys would otherwise navigate blind. So the ring comes back for :focus-visible only (a mouse
+   click still leaves no lingering outline), drawn in the accent so it reads over the hero. */
+.rect-button,
+.text-button {
+  outline: none;
+}
+
+.rect-button:focus-visible,
+.text-button:focus-visible {
+  outline: calc(3 * var(--px)) solid var(--d2);
+  outline-offset: calc(4 * var(--px));
+}
+
+/* More: three dots, 56×16 in the mockup, centered in the 92×92 button. overflow:visible so the last
+   dot (its right edge sits exactly on the viewBox boundary) isn't clipped by the SVG viewport. */
+.icon-more {
+  width: calc(56 * var(--px));
+  height: calc(16 * var(--px));
+  fill: currentColor;
+  overflow: visible;
+}
+
+/* Icons don't intercept pointer events, so hover/click target the button itself (otherwise the
+   global `* { cursor: default }` would override the button's pointer cursor over the icon). */
+.icon-more {
+  pointer-events: none;
+}
+
+/* ── Title & status ───────────────────────────────────────────────────────
+   BROWSER: in the launcher these two are state-driven — the title only lifts and the status only fades
+   in while a game is busy, and both slide back on the idle screen. The site has no states: it is
+   permanently the launcher's empty screen WITH a visible status line, so the busy-layout values are
+   written unconditionally and the per-phase selectors are gone. `left: 0` is what the idle rule did —
+   there is no Play button, so the left slot is free. */
+
+.title {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: calc(92 * var(--px));
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+  font-weight: 800;
+  font-size: calc(32 * var(--px));
+  line-height: calc(48 * var(--px));
+  color: var(--fg);
+  /* Lifted so the status forms a second line below it (the launcher's busy layout). */
+  transform: translateY(calc(-18 * var(--px)));
+  transition: transform 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.status {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: calc(92 * var(--px));
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+  font-weight: 400;
+  font-size: calc(24 * var(--px));
+  line-height: calc(36 * var(--px));
+  color: var(--fg);
+  /* Pre-positioned below center so it forms the second line under the lifted title. */
+  transform: translateY(calc(18 * var(--px)));
+  opacity: 1;
+  transition: opacity 0.3s ease;
+}
+
+/* ── Popup (the menu) ───────────────────────────────────────────────────────
+   ONE frosted veil + ONE right-side column (550px). The launcher switches four views in here by
+   data-view; the site has only `details`, but the attribute and its selector stay so the component
+   still matches its source. Toggled open with .is-open. */
+
+.popup {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.popup-veil {
+  position: absolute;
+  inset: 0;
+  /* Horizontal gradient: transparent on the left (hero visible) → solid d1 on the right. */
+  background: linear-gradient(to right, transparent 0%, var(--d1) 100%);
+  /* BROWSER: prefixed twin for Safari < 18 (see #bottom-bar). */
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  /* Mask so the frosted blur only appears on the right, fading in from the center. */
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 58%);
+  mask-image: linear-gradient(to right, transparent 0%, #000 58%);
+  opacity: 0;
+  transition: opacity 0.35s ease;
+}
+
+/* Right column: 550px wide, inset 50px on right/top/bottom. The action stack is pushed to the bottom
+   (margin-top:auto on .popup-actions). Slides in + fades with the veil. */
+.popup-column {
+  position: absolute;
+  right: calc(50 * var(--px));
+  top: calc(50 * var(--px));
+  bottom: calc(50 * var(--px));
+  width: calc(550 * var(--px));
+  display: flex;
+  flex-direction: column;
+  text-align: right;
+  transform: translateX(calc(40 * var(--px)));
+  opacity: 0;
+  transition:
+    transform 0.35s ease,
+    opacity 0.35s ease;
+}
+
+.popup.is-open {
+  pointer-events: auto;
+}
+.popup.is-open .popup-veil {
+  opacity: 1;
+}
+.popup.is-open .popup-column {
+  transform: none;
+  opacity: 1;
+}
+
+/* ── Action stack ───────────────────────────────────────────────────────────
+   Pinned to the column bottom (margin-top:auto), as a vertical stack aligned to the right edge — a
+   longer label grows LEFT, the right edge stays fixed. Default focus is the BOTTOM button. */
+.popup-actions {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.actions-group {
+  display: none;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: calc(8 * var(--px));
+}
+#popup[data-view='details'] .actions-group[data-group='details'] {
+  display: flex;
+}
+
+/* ── TextButton — textual sibling of .rect-button ───────────────────────────
+   Transparent with d2 text; inverts to a d2 fill with d1 text on hover/focus (the design's "Active"
+   variant — the mockup's filled bottom button is just the default focus, not a persistent state). */
+
+.text-button {
+  height: calc(92 * var(--px));
+  /* Never squeeze: these are flex items in a vertical stack. */
+  flex: 0 0 auto;
+  min-width: calc(184 * var(--px));
+  padding: 0 calc(32 * var(--px));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: calc(10 * var(--px));
+  background: transparent;
+  color: var(--d2);
+  font-family: inherit;
+  font-weight: 500;
+  font-size: calc(28 * var(--px));
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease,
+    transform 0.12s ease;
+}
+
+/* Hover paints the same highlight as .is-focused, but ONLY while the cursor is live: once the gamepad
+   takes over (html.cursor-hidden), the pointer still physically sits over whatever it last hovered, so a
+   bare :hover would keep that button highlighted alongside the gamepad's .is-focused one — two
+   highlights, and A (which acts on .is-focused) would fire a different button than the hovered one looks. */
+html:not(.cursor-hidden) .text-button:hover,
+.text-button.is-focused {
+  background: var(--d2);
+  color: var(--d1);
+}
+
+/* ── BROWSER: narrow / short viewports ─────────────────────────────────────
+   Below this size the proportional pixel above collapses to something unreadable (≈0.2px on a phone,
+   i.e. a 6px title), so the design pixel gets a floor. But a floor alone breaks the layout: at that
+   scale the absolutely-positioned two-line block no longer fits beside the More button, and
+   `body{overflow:hidden}` would hide the overflow rather than reveal it — the bug would show up as
+   text sliding under the button. So the bar switches to flow layout here, and the status may wrap.
+   The trigger is width OR height: a landscape phone (812×375) and a tablet (768×1024) both need it,
+   and only one of the two dimensions is small in each. */
+@media (max-width: 900px), (max-height: 600px) {
+  :root {
+    --px: max(min(0.0925926vh, 0.0520833vw), 0.55px);
+  }
+
+  #bottom-bar {
+    height: auto;
+    padding-top: calc(120 * var(--px));
+  }
+
+  .bar-content {
+    position: relative;
+    left: auto;
+    right: auto;
+    bottom: auto;
+    height: auto;
+    margin: 0 calc(50 * var(--px)) calc(50 * var(--px));
+    /* Room for the More button, which stays absolutely positioned in this box's top-right corner. */
+    padding-right: calc(124 * var(--px));
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  /* Back into the flow, in reading order (the markup puts #status first so the launcher can lift the
+     title over it). */
+  .title,
+  .status {
+    position: static;
+    height: auto;
+    transform: none;
+  }
+  .title {
+    order: 1;
+  }
+  .status {
+    order: 2;
+    /* Wrap instead of running off the edge — this line is the widest thing in the bar. */
+    white-space: normal;
+  }
+
+  .popup-column {
+    width: min(calc(550 * var(--px)), 88vw);
+  }
+}
+
+/* ── BROWSER: reduced motion ───────────────────────────────────────────────
+   The hero both pans (animation) and cross-fades (a 1s opacity transition). Killing only the animation
+   would leave the fade running, so both go. */
+@media (prefers-reduced-motion: reduce) {
+  .hero-layer {
+    animation: none;
+    transition: none;
+  }
+}

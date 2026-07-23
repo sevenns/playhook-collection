@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- Ported from playhook's launcher CSP, but retargeted: there everything arrives as data: URLs from
+         the main process, here every asset is a same-origin relative URL. 'unsafe-inline' is deliberately
+         absent — style-src governs <style> tags and style="..." attributes, not CSSOM writes, and the
+         palette/hero code only ever writes through the CSSOM (element.style.setProperty). -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; img-src 'self'; media-src 'self'; style-src 'self'; font-src 'self'; script-src 'self';"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Playhook — bring console vibes to your PC</title>
+    <meta
+      name="description"
+      content="Playhook is a background launcher that detects games on an external device, syncs saves and tracks playtime. Plus a collection of ready-made game.json manifests."
+    />
+    <link rel="icon" href="./favicon.png" />
+    <!-- The hero cross-fade assumes an image that is already decodable (in the launcher it is a data URL).
+         Preloading keeps the first fade from playing over an empty layer — see main.ts. -->
+    <link rel="preload" as="image" href="./wallpaper.webp" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main id="app" data-route="home">
+      <!-- Hero background: two stacked layers behind all UI (z-index only on the container, see
+           styles.css). JS writes the image + pan into the idle layer and cross-fades it in, GTA-5-style. -->
+      <div id="hero">
+        <div class="hero-layer"></div>
+        <div class="hero-layer"></div>
+      </div>
+
+      <!-- Bottom bar, ported from the launcher's empty screen: no Play button, the two-line title+status
+           block in the (empty) left slot, More on the right. Unlike the launcher both lines are ALWAYS
+           visible here, and their text is inlined so there is no empty frame before the script runs. -->
+      <footer id="bottom-bar">
+        <div class="bar-content">
+          <div id="status" class="status">Bring console vibes to your PC</div>
+          <div id="title" class="title">Playhook</div>
+
+          <!-- More button: same rect-button component (invert-on-hover), three dots. Opens the menu. -->
+          <button id="more-button" class="rect-button" type="button" aria-label="More">
+            <svg class="icon-more" viewBox="0 0 56 16" aria-hidden="true">
+              <path
+                d="M8 0C12.4183 0 16 3.58172 16 8C16 12.4183 12.4183 16 8 16C3.58172 16 0 12.4183 0 8C0 3.58172 3.58172 0 8 0Z"
+              />
+              <path
+                d="M28 0C32.4183 0 36 3.58172 36 8C36 12.4183 32.4183 16 28 16C23.5817 16 20 12.4183 20 8C20 3.58172 23.5817 0 28 0Z"
+              />
+              <path
+                d="M48 0C52.4183 0 56 3.58172 56 8C56 12.4183 52.4183 16 48 16C43.5817 16 40 12.4183 40 8C40 3.58172 43.5817 0 48 0Z"
+              />
+            </svg>
+          </button>
+        </div>
+      </footer>
+
+      <!-- Menu popup: ONE frosted veil + ONE right-side column (550px), same component as the launcher's,
+           reduced to a single view. Default focus is the BOTTOM button (Close) — see controls.ts.
+           `inert` while closed: the column only fades out via opacity, so without it the buttons would
+           stay in the tab order (the launcher never cared — it is a kiosk with no tab key). -->
+      <section id="popup" class="popup" aria-hidden="true" data-view="details" inert>
+        <div class="popup-veil"></div>
+        <div class="popup-column">
+          <!-- Bottom action stack: a vertical stack aligned to the right edge — a longer label grows to
+               the LEFT, the right edge stays fixed. -->
+          <div class="popup-actions">
+            <div class="actions-group" data-group="details">
+              <!-- Label + action follow the current route (Collection on home, Home in the collection);
+                   set from router.ts, so no static text here. -->
+              <button id="menu-route" class="text-button" type="button"></button>
+              <button id="menu-close" class="text-button" type="button">Close</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
