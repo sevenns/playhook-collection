@@ -8,6 +8,7 @@ import { cp, mkdir, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as esbuild from 'esbuild';
+import { buildCollectionFeed } from './collection-feed.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const dist = join(root, 'dist');
@@ -30,4 +31,8 @@ await cp(join(root, 'src', 'index.html'), join(dist, 'index.html'));
 await cp(join(root, 'src', 'styles.css'), join(dist, 'styles.css'));
 await cp(join(root, 'public'), dist, { recursive: true });
 
-console.log('built → dist/');
+// The collection is the site's own first consumer: the feed it publishes for the launcher is the very
+// data this page renders, so a broken generator is caught by every deploy rather than "later".
+const feed = await buildCollectionFeed(root, dist);
+
+console.log(`built → dist/ (${feed.entries.length} collection entries)`);

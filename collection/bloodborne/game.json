@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "bloodborne",
+  "title": "Bloodborne",
+  "executable": "BB_Launcher.exe",
+  "args": [
+    "-n"
+  ],
+  "watchProcesses": [
+    "shadps4.exe"
+  ],
+  "heroImage": [
+    "assets/hero2.jpg",
+    "assets/hero1.jpg",
+    "assets/hero3.jpg"
+  ],
+  "sounds": {
+    "play": "assets/play.wav",
+    "navigate": "assets/move.wav",
+    "button": "assets/button.wav",
+    "back": "assets/back.wav"
+  },
+  "backgroundMusic": "assets/theme.mp3",
+  "launchTimeoutSec": 60
+}
