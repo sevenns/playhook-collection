@@ -73,10 +73,9 @@
   cursor: default;
 }
 
-/* Cursor hidden while the gamepad is in use (class toggled from controls.ts). The descendant selector's
-   specificity beats the per-element cursor rules (buttons' pointer); a real mouse move restores it.
-   BROWSER: the launcher ALSO hides the cursor on a 5s idle timeout — deliberately dropped here, since a
-   web page that eats your pointer while you read is an antipattern. Gamepad use is the only trigger. */
+/* Cursor hidden while the gamepad is in use, or after the launcher's 5s idle timeout (class toggled from
+   controls.ts). The descendant selector's specificity beats the per-element cursor rules (buttons'
+   pointer); a real mouse move restores it. */
 html.cursor-hidden,
 html.cursor-hidden * {
   cursor: none;
@@ -182,6 +181,93 @@ body {
   height: calc(92 * var(--px));
 }
 
+/* ── Play button ────────────────────────────────────────────────────────────
+   Ported from the launcher: geometrically .rect-button at the LEFT edge, its only visual distinction
+   being the pulsing ring on hover/focus. Shown ONLY on a game screen: the site's home screen IS the
+   launcher's idle screen, and the launcher hides Play there (styles.css `#app[data-phase='idle']`). That
+   also leaves mockups 1-3 untouched. The button is decorative — see index.html. */
+
+#app[data-route='home'] .play-button {
+  display: none;
+}
+
+.play-button {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: calc(92 * var(--px));
+  height: calc(92 * var(--px));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: calc(10 * var(--px));
+  background: transparent;
+  color: var(--d2);
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease,
+    transform 0.12s ease;
+}
+
+/* :hover gated on a live cursor — see the note on .text-button:hover. */
+html:not(.cursor-hidden) .play-button:hover,
+.play-button.is-focused {
+  background: var(--d2);
+  color: var(--d1);
+}
+
+.play-button:active,
+.play-button.is-pressed {
+  transform: scale(0.9);
+}
+
+.play-button:focus-visible {
+  outline: calc(3 * var(--px)) solid var(--d2);
+  outline-offset: calc(4 * var(--px));
+}
+
+/* Pulse ring — a rounded square echoing the button (kept on hover/focus per design). */
+.play-button::after {
+  content: '';
+  position: absolute;
+  inset: calc(-7 * var(--px));
+  border: calc(3 * var(--px)) solid var(--d2);
+  border-radius: calc(17 * var(--px));
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+html:not(.cursor-hidden) .play-button:hover::after,
+.play-button.is-focused::after {
+  opacity: 1;
+  animation: pulse-ring 1.1s ease-in-out infinite;
+}
+
+@keyframes pulse-ring {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.09);
+  }
+}
+
+.icon-play {
+  width: calc(36 * var(--px));
+  height: calc(48 * var(--px));
+  fill: currentColor;
+  /* Optical centering: a triangle looks off-center when geometrically centered; nudge right
+     (+4px in the mockup, where the triangle's center sits 4px right of the button's center). */
+  transform: translateX(calc(4 * var(--px)));
+  /* Like .icon-more: the icon must not intercept the pointer, or the global `* { cursor: default }`
+     would override the button's pointer cursor over it. */
+  pointer-events: none;
+}
+
 /* ── Rect (More) button — normal: no background, content d2; fills with d2 on hover/focus ── */
 
 .rect-button {
@@ -221,6 +307,12 @@ html:not(.cursor-hidden) .rect-button:hover,
   transform: scale(0.9);
 }
 
+/* …except the search box: clicking it means "put the caret here", not "fire an action", and a field that
+   shrinks under the pointer while you aim at a character is worse than no feedback. */
+.input-button:active {
+  transform: none;
+}
+
 /* The launcher suppresses the native ring outright — .is-focused is its single focus visual, and a
    kiosk has no Tab key. BROWSER: a public page does, and a keyboard user who does not know about the
    arrow keys would otherwise navigate blind. So the ring comes back for :focus-visible only (a mouse
@@ -253,14 +345,15 @@ html:not(.cursor-hidden) .rect-button:hover,
 
 /* ── Title & status ───────────────────────────────────────────────────────
    BROWSER: in the launcher these two are state-driven — the title only lifts and the status only fades
-   in while a game is busy, and both slide back on the idle screen. The site has no states: it is
-   permanently the launcher's empty screen WITH a visible status line, so the busy-layout values are
-   written unconditionally and the per-phase selectors are gone. `left: 0` is what the idle rule did —
-   there is no Play button, so the left slot is free. */
+   in while a game is busy, and both slide back on the idle screen. The site has no states: both lines
+   are permanently visible, so the busy-layout values are written unconditionally and the per-phase
+   selectors are gone. What DOES vary is the left slot: `left: 124` (play 92 + gap 32) on a game screen,
+   `left: 0` on home, where Play is hidden and the slot is free — the same swap the launcher makes by
+   phase, keyed on the route instead. */
 
 .title {
   position: absolute;
-  left: 0;
+  left: calc(124 * var(--px));
   top: 0;
   height: calc(92 * var(--px));
   display: flex;
@@ -277,7 +370,7 @@ html:not(.cursor-hidden) .rect-button:hover,
 
 .status {
   position: absolute;
-  left: 0;
+  left: calc(124 * var(--px));
   top: 0;
   height: calc(92 * var(--px));
   display: flex;
@@ -293,10 +386,16 @@ html:not(.cursor-hidden) .rect-button:hover,
   transition: opacity 0.3s ease;
 }
 
+/* Home: no Play button, so both lines move into the empty left slot. */
+#app[data-route='home'] .title,
+#app[data-route='home'] .status {
+  left: 0;
+}
+
 /* ── Popup (the menu) ───────────────────────────────────────────────────────
-   ONE frosted veil + ONE right-side column (550px). The launcher switches four views in here by
-   data-view; the site has only `details`, but the attribute and its selector stay so the component
-   still matches its source. Toggled open with .is-open. */
+   ONE frosted veil + ONE right-side column (450px, measured off the Figma InfoBlockContainer — the
+   launcher's own column is 550). The launcher switches four views in here by data-view; the site uses
+   two of them, `details` and `select-game`. Toggled open with .is-open. */
 
 .popup {
   position: absolute;
@@ -319,14 +418,14 @@ html:not(.cursor-hidden) .rect-button:hover,
   transition: opacity 0.35s ease;
 }
 
-/* Right column: 550px wide, inset 50px on right/top/bottom. The action stack is pushed to the bottom
+/* Right column: 450px wide, inset 50px on right/top/bottom. The action stack is pushed to the bottom
    (margin-top:auto on .popup-actions). Slides in + fades with the veil. */
 .popup-column {
   position: absolute;
   right: calc(50 * var(--px));
   top: calc(50 * var(--px));
   bottom: calc(50 * var(--px));
-  width: calc(550 * var(--px));
+  width: calc(450 * var(--px));
   display: flex;
   flex-direction: column;
   text-align: right;
@@ -363,21 +462,242 @@ html:not(.cursor-hidden) .rect-button:hover,
   flex-direction: column;
   align-items: flex-end;
   gap: calc(8 * var(--px));
+  /* A flex item's default `min-height: auto` is its content height, which would let the game list push
+     Search and Close off the bottom of the column no matter what min-height the list itself carries.
+     The launcher sets this only on the select-game group; here it is harmless on both. */
+  min-height: 0;
 }
-#popup[data-view='details'] .actions-group[data-group='details'] {
+#popup[data-view='details'] .actions-group[data-group='details'],
+#popup[data-view='select-game'] .actions-group[data-group='select-game'] {
   display: flex;
+}
+
+/* ONLY the game list may claim the column's leftover height (the details stack stays content-sized and
+   pinned to the bottom). Overflow stays VISIBLE here on purpose, so the scrollbar thumb can sit outside
+   the list's right edge. */
+#popup[data-view='select-game'] .actions-group[data-group='select-game'] {
+  flex: 1 1 auto;
+}
+
+/* Positioning context for the custom scrollbar thumb, which overlays the list's right edge. It cannot
+   live inside .select-game-list: that box's own overflow-y would clip a thumb pulled outside it and drag
+   it along with the scroll. And without `position: relative` here the thumb would position off #app. */
+.select-game-scroll {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+}
+
+/* The game buttons scroll when the catalogue is long (they never shrink — see .text-button's flex:0 0
+   auto), while Search and Close below stay fixed and reachable. The scroll area takes whatever height
+   the popup column has left, so it adapts to the window instead of a magic cap. */
+.select-game-list {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: calc(8 * var(--px));
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  /* Room so the last item isn't flush against the Search box below. */
+  padding-bottom: calc(8 * var(--px));
+  /* Hide the native scrollbar entirely — Chromium never animates ::-webkit-scrollbar, so a fade is
+     impossible there. The visible one is .select-game-thumb, a real element we can transition. On a
+     public page this beats the native bar for a second reason: a native scrollbar eats width INSIDE the
+     list and shoves the right-aligned buttons over when it appears, and `scrollbar-gutter: stable`
+     reserves that width permanently, breaking the mockups' flush right edge. */
+  scrollbar-width: none;
+}
+.select-game-list::-webkit-scrollbar {
+  display: none;
+}
+
+/* Custom scrollbar thumb: a hairline that barely reads against the frosted popup. Positioned from JS
+   (translateY) and faded out when the focus leaves the game list or after a few idle seconds. It sits
+   OUTSIDE the list's right edge (a negative `right` pulls it out of the box), so the buttons keep their
+   full width — nothing shifts when it appears.
+   PORT NOTE: the launcher also lets you DRAG this thumb (pointer capture, ~35 lines). Not ported: the
+   list scrolls by wheel, gamepad and keyboard, and grabbing a 4px hairline is a marginal path. */
+.select-game-thumb {
+  --thumb-width: calc(4 * var(--px));
+  --thumb-gap: calc(16 * var(--px)); /* clearance between the buttons and the scrollbar */
+  position: absolute;
+  top: 0;
+  right: calc(-1 * (var(--thumb-width) + var(--thumb-gap)));
+  width: var(--thumb-width);
+  /* Fixed height: a proportional thumb (clientHeight/scrollHeight) grows to nearly the full track when
+     the list only just overflows, which reads as a bug. JS only positions it (translateY). */
+  height: calc(32 * var(--px));
+  border-radius: calc(2 * var(--px));
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
+  opacity: 0;
+  transition: opacity 0.35s ease;
+  /* Purely an indicator here (no drag), so it never needs to catch the pointer. */
+  pointer-events: none;
+}
+.select-game-thumb.is-visible {
+  opacity: 1;
+}
+
+/* ── Game buttons, marquee ──────────────────────────────────────────────────
+   Game buttons size to their title (like every other .text-button, right-aligned in the stack), but never
+   wider than the column's 424px cap — a long title is HARD-CLIPPED there (no ellipsis). Only while the
+   button is focused does the title marquee-scroll back and forth so the full name is readable; the popup
+   never widens. Non-overflowing titles never scroll.
+   The cap is derived from the column rather than written as 424 so the two can't drift apart: the Figma
+   frame puts 26px between the widest button and the column's left edge. */
+.select-game-list .game-button {
+  width: auto;
+  max-width: calc(100% - 26 * var(--px));
+  justify-content: flex-start;
+  overflow: hidden;
+}
+.game-label {
+  /* `0 1 auto`: sized by the text, but allowed to SHRINK once the button hits max-width — that shrink
+     (with min-width:0) is what produces the clip. `1 …` would instead stretch it on short titles. */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  --fade: calc(8 * var(--px)); /* soft-fade width at a clipped edge */
+}
+/* A clipped (overflowing) title fades out at the RIGHT edge so the cut looks soft, not chopped. */
+.game-button.is-clipped .game-label {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - var(--fade)), transparent 100%);
+  mask-image: linear-gradient(to right, #000 calc(100% - var(--fade)), transparent 100%);
+}
+/* While the focused title marquee-scrolls, fade BOTH edges so the text softly enters/leaves on each side. */
+.game-button.is-scrolling .game-label {
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 var(--fade),
+    #000 calc(100% - var(--fade)),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 var(--fade),
+    #000 calc(100% - var(--fade)),
+    transparent 100%
+  );
+}
+.game-label-inner {
+  display: inline-block;
+  white-space: nowrap;
+  will-change: transform;
+}
+/* Ping-pong marquee: shift + per-title duration are set from JS (measured overflow); `alternate` scrolls
+   to the end and back, `ease-in-out` dwells at each edge so the start/end are readable. */
+.game-button.is-scrolling .game-label-inner {
+  animation: game-marquee var(--marquee-duration, 6s) ease-in-out infinite alternate;
+}
+@keyframes game-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(var(--marquee-shift, 0));
+  }
+}
+
+/* ── List placeholder (loading / empty / error / no matches) ────────────────
+   Deliberately NOT a button: it must stay out of the focus stack, or A would land on a line that does
+   nothing and the whole list would look broken. */
+.list-placeholder {
+  flex: 0 0 auto;
+  height: calc(92 * var(--px));
+  padding: 0 calc(13 * var(--px));
+  display: flex;
+  align-items: center;
+  font-weight: 500;
+  font-size: calc(28 * var(--px));
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--d2) 65%, transparent);
+}
+
+/* ── Input (Search) ─────────────────────────────────────────────────────────
+   A TextButton you can type into. The width follows the content (115px empty, 250px with "Search: bloo"
+   in the mockups), measured by .input-mirror — see controls.ts. */
+.input-button {
+  /* The label is left-aligned inside the box, unlike a plain TextButton's centered caption. */
+  justify-content: flex-start;
+  gap: 0;
+  overflow: hidden;
+  /* Containing block for the absolutely-positioned mirror, so it can't stretch anything. */
+  position: relative;
+}
+
+.input-prefix,
+.input-colon {
+  pointer-events: none;
+}
+
+/* The colon only exists once something has been typed: mockup 2 reads "Search", mockup 3 "Search: bloo". */
+.input-colon {
+  display: none;
+  padding-right: calc(6 * var(--px));
+}
+.input-button.is-filled .input-colon {
+  display: inline;
+}
+
+.input-field {
+  /* Sized from JS (the mirror below); this is only the floor for an empty field's caret. */
+  width: calc(1 * var(--px));
+  min-width: 0;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-weight: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  /* The global kiosk rules below make a text field unusable — a caret you cannot place and text you
+     cannot select. Undo them here and nowhere else. */
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+.input-button {
+  cursor: text;
+}
+
+/* Hidden twin of the field, carrying the same text in the same font: its offsetWidth is the width the
+   field needs. `size` is no substitute — it counts monospace ex units and misses on a proportional font. */
+.input-mirror {
+  position: absolute;
+  visibility: hidden;
+  white-space: pre;
+  pointer-events: none;
+  font-family: inherit;
+  font-weight: inherit;
+  font-size: inherit;
+  letter-spacing: inherit;
 }
 
 /* ── TextButton — textual sibling of .rect-button ───────────────────────────
    Transparent with d2 text; inverts to a d2 fill with d1 text on hover/focus (the design's "Active"
-   variant — the mockup's filled bottom button is just the default focus, not a persistent state). */
+   variant — the mockup's filled bottom button is just the default focus, not a persistent state).
+   Also worn by an <a> (the Github link), hence the text-decoration reset.
+
+   Horizontal padding is 13, the Figma component's value in every instance across all five mockups; the
+   launcher writes 32. This brings the component to its own spec, so it is visibly narrower on the
+   existing screens too (Collection goes ~205 → 184px, where min-width takes over).
+   `min-width: 184` is NOT from Figma — the mockups author it inconsistently (184 in one, 98 in another).
+   It is the launcher's value and stays the single source of the lower bound. */
 
 .text-button {
   height: calc(92 * var(--px));
-  /* Never squeeze: these are flex items in a vertical stack. */
+  /* Never squeeze: these are flex items in a vertical stack, and the default flex-shrink:1 would compress
+     them instead of letting a long list scroll (see .select-game-list). */
   flex: 0 0 auto;
   min-width: calc(184 * var(--px));
-  padding: 0 calc(32 * var(--px));
+  padding: 0 calc(13 * var(--px));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -389,6 +709,7 @@ html:not(.cursor-hidden) .rect-button:hover,
   font-weight: 500;
   font-size: calc(28 * var(--px));
   white-space: nowrap;
+  text-decoration: none;
   cursor: pointer;
   transition:
     background 0.2s ease,
@@ -431,11 +752,17 @@ html:not(.cursor-hidden) .text-button:hover,
     bottom: auto;
     height: auto;
     margin: 0 calc(50 * var(--px)) calc(50 * var(--px));
-    /* Room for the More button, which stays absolutely positioned in this box's top-right corner. */
+    /* Room for the More button, which stays absolutely positioned in this box's top-right corner — and,
+       on a game screen, the mirror-image room for Play at the top-LEFT (both stay absolute here, so
+       without the reserve the text would run under them). */
     padding-right: calc(124 * var(--px));
     display: flex;
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  #app[data-route='game'] .bar-content {
+    padding-left: calc(124 * var(--px));
   }
 
   /* Back into the flow, in reading order (the markup puts #status first so the launcher can lift the
@@ -445,6 +772,11 @@ html:not(.cursor-hidden) .text-button:hover,
     position: static;
     height: auto;
     transform: none;
+  }
+  /* `left` is meaningless in the flow — the padding above is what makes room for Play now. */
+  #app[data-route='home'] .title,
+  #app[data-route='home'] .status {
+    left: auto;
   }
   .title {
     order: 1;
@@ -456,16 +788,25 @@ html:not(.cursor-hidden) .text-button:hover,
   }
 
   .popup-column {
-    width: min(calc(550 * var(--px)), 88vw);
+    width: min(calc(450 * var(--px)), 88vw);
   }
 }
 
 /* ── BROWSER: reduced motion ───────────────────────────────────────────────
    The hero both pans (animation) and cross-fades (a 1s opacity transition). Killing only the animation
-   would leave the fade running, so both go. */
+   would leave the fade running, so both go. The Play button's ring and the game-title marquee are the
+   other two perpetual motions on the page — an endlessly pulsing ring at the screen edge is precisely
+   what this query exists for; the ring itself stays, only its beat stops. */
 @media (prefers-reduced-motion: reduce) {
   .hero-layer {
     animation: none;
     transition: none;
+  }
+  html:not(.cursor-hidden) .play-button:hover::after,
+  .play-button.is-focused::after {
+    animation: none;
+  }
+  .game-button.is-scrolling .game-label-inner {
+    animation: none;
   }
 }

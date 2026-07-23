@@ -5,13 +5,16 @@
     <!-- Ported from playhook's launcher CSP, but retargeted: there everything arrives as data: URLs from
          the main process, here every asset is a same-origin relative URL. 'unsafe-inline' is deliberately
          absent — style-src governs <style> tags and style="..." attributes, not CSSOM writes, and the
-         palette/hero code only ever writes through the CSSOM (element.style.setProperty). -->
+         palette/hero code only ever writes through the CSSOM (element.style.setProperty).
+         `connect-src 'self'` is what lets the page fetch its own collection feed (api/v1/index.json):
+         default-src 'none' covers connect-src too, and without this the fetch fails with nothing on
+         screen but an empty list — see collection.ts. -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; img-src 'self'; media-src 'self'; style-src 'self'; font-src 'self'; script-src 'self';"
+      content="default-src 'none'; img-src 'self'; media-src 'self'; style-src 'self'; font-src 'self'; script-src 'self'; connect-src 'self';"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Playhook — bring console vibes to your PC</title>
+    <title>Playhook - bring console vibes to your PC</title>
     <meta
       name="description"
       content="Playhook is a background launcher that detects games on an external device, syncs saves and tracks playtime. Plus a collection of ready-made game.json manifests."
@@ -31,11 +34,25 @@
         <div class="hero-layer"></div>
       </div>
 
-      <!-- Bottom bar, ported from the launcher's empty screen: no Play button, the two-line title+status
-           block in the (empty) left slot, More on the right. Unlike the launcher both lines are ALWAYS
-           visible here, and their text is inlined so there is no empty frame before the script runs. -->
+      <!-- Bottom bar, ported from the launcher: the two-line title+status block, More on the right, and
+           Play in the left slot — shown only on a game screen, exactly as the launcher hides it on its
+           idle screen. Unlike the launcher both text lines are ALWAYS visible here, and their text is
+           inlined so there is no empty frame before the script runs. -->
       <footer id="bottom-bar">
         <div class="bar-content">
+          <!-- Play: the launcher's own button, ported for the resemblance and nothing else — it plays the
+               `play` sound and does NOT launch anything. There is no window.api on a web page; if you are
+               looking for the missing handler, this is it. -->
+          <button id="play-button" class="play-button" type="button" aria-label="Play">
+            <!-- Play triangle with rounded corners (quadratic beziers through each vertex, ~6-unit
+                 edge offset) so it matches the 10px-radius language of the rest of the UI. -->
+            <svg class="icon-play" viewBox="0 0 36 48" aria-hidden="true">
+              <path
+                d="M6.94 5.4 L29.06 20.6 Q34 24 29.06 27.4 L6.94 42.6 Q2 46 2 40 L2 8 Q2 2 6.94 5.4 Z"
+              />
+            </svg>
+          </button>
+
           <div id="status" class="status">Bring console vibes to your PC</div>
           <div id="title" class="title">Playhook</div>
 
@@ -56,21 +73,61 @@
         </div>
       </footer>
 
-      <!-- Menu popup: ONE frosted veil + ONE right-side column (550px), same component as the launcher's,
-           reduced to a single view. Default focus is the BOTTOM button (Close) — see controls.ts.
+      <!-- Menu popup: ONE frosted veil + ONE right-side column (450px), same component as the launcher's,
+           with two of its four views. Default focus is the BOTTOM button in both — see controls.ts.
            `inert` while closed: the column only fades out via opacity, so without it the buttons would
            stay in the tab order (the launcher never cared — it is a kiosk with no tab key). -->
       <section id="popup" class="popup" aria-hidden="true" data-view="details" inert>
         <div class="popup-veil"></div>
         <div class="popup-column">
-          <!-- Bottom action stack: a vertical stack aligned to the right edge — a longer label grows to
-               the LEFT, the right edge stays fixed. -->
+          <!-- Bottom action stacks — one group per view; only the active view's group shows (CSS).
+               Each is a vertical stack aligned to the right edge: a longer label grows to the LEFT,
+               the right edge stays fixed. -->
           <div class="popup-actions">
             <div class="actions-group" data-group="details">
-              <!-- Label + action follow the current route (Collection on home, Home in the collection);
-                   set from router.ts, so no static text here. -->
-              <button id="menu-route" class="text-button" type="button"></button>
+              <!-- Github: a real link, in the SAME tab. Gamepad polling is not a user activation, so a
+                   scripted click on target="_blank" would be blocked as a popup — one code path for
+                   mouse, keyboard and pad is worth more than a new tab. href is set per route from
+                   controls.ts (the repository on home, the entry's directory on a game screen). -->
+              <a id="menu-github" class="text-button" href="https://github.com/sevenns/playhook"
+                >Github</a
+              >
+              <!-- Collection is a VIEW, not a route: this switches the popup to the game list, from the
+                   home screen and from a game screen alike (mockups 1 and 5). -->
+              <button id="menu-collection" class="text-button" type="button">Collection</button>
               <button id="menu-close" class="text-button" type="button">Close</button>
+            </div>
+
+            <!-- Select-game list: the catalogue (built from JS, each a .text-button carrying data-slug)
+                 inside a scrollable box, with Search and Close pinned below it so both stay reachable
+                 while the list scrolls. -->
+            <div class="actions-group" data-group="select-game">
+              <!-- The native scrollbar is hidden and replaced by #select-game-thumb: a real element, so
+                   it can fade in/out (Chromium never animates ::-webkit-scrollbar). controls.ts
+                   positions it from the list's scroll geometry. -->
+              <div class="select-game-scroll">
+                <div id="select-game-list" class="select-game-list"></div>
+                <div id="select-game-thumb" class="select-game-thumb" aria-hidden="true"></div>
+              </div>
+              <!-- Search: a TextButton you can type into. "Search" is a static label (it stays put while
+                   you type, as in the mockups) and the colon only appears once there is a value. The
+                   mirror span measures the value so the box grows with its content — <input> cannot size
+                   itself, and `size` counts monospace ex units, which lie on a proportional font. -->
+              <div class="text-button input-button" id="menu-search">
+                <span class="input-prefix">Search</span>
+                <span class="input-colon" aria-hidden="true">:</span>
+                <input
+                  id="search-field"
+                  class="input-field"
+                  type="text"
+                  autocomplete="off"
+                  spellcheck="false"
+                  autocapitalize="off"
+                  aria-label="Search the collection"
+                />
+                <span class="input-mirror" aria-hidden="true"></span>
+              </div>
+              <button id="menu-select-close" class="text-button" type="button">Close</button>
             </div>
           </div>
         </div>

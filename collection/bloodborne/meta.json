@@ -1,0 +1,16 @@
+{
+  "title": "Bloodborne",
+  "author": "sevenns",
+  "verifiedAt": "2026-07-23",
+  "tested": ["win32"],
+  "preview": {
+    "hero": ["assets/hero2.jpg", "assets/hero1.jpg", "assets/hero3.jpg"],
+    "sounds": {
+      "play": "assets/play.wav",
+      "navigate": "assets/move.wav",
+      "button": "assets/button.wav",
+      "back": "assets/back.wav"
+    },
+    "music": "assets/theme.mp3"
+  }
+}

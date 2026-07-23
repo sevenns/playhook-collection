@@ -15,6 +15,7 @@
     "dev": "node scripts/build.mjs && esbuild --servedir=dist --serve=8000 --watch"
   },
   "devDependencies": {
+    "ajv": "^8.20.0",
     "esbuild": "^0.28.1",
     "eslint": "^9.39.4",
     "eslint-config-prettier": "^9.1.2",

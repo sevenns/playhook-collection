@@ -1,20 +1,38 @@
 // Hero background subsystem, ported from playhook @ c348f4246752286b594c8a8eddd2253ea88b0f12 :
-// src/renderer/hero.ts, reduced to the empty screen. The launcher's per-card hero rotation
-// (applyAssets / startRotation / repaint / the per-hero palette cache) and its HeroDeps seam are gone —
-// there is exactly one image here, and no game state to read.
+// src/renderer/hero.ts. The launcher's HeroDeps seam (a game-state reader and a translator) is gone —
+// here the caller simply says which entry is on screen — but everything that made the launcher's heroes
+// feel alive is back: the per-entry image rotation, the positional palette cache, and the wallpaper
+// fallback.
 //
-// What is kept 1:1: the two cross-fading layers with a randomized pan direction and the forced
-// animation restart, and the two-color palette applied inline on #app.
+// What is kept 1:1: the two cross-fading layers with a randomized pan direction and the forced animation
+// restart, and the two-color palette applied inline on #app.
 import { computePalette, type Palette } from './dominant-color.js';
+import { preload } from './preload.js';
 import { req } from './dom.js';
 
+const HERO_ROTATE_MS = 60_000;
+/** How far ahead of a swap the next image is fetched. */
+const PRELOAD_LEAD_MS = 5_000;
+
 export interface HeroController {
-  /** Cross-fades the wallpaper in and applies its palette. */
-  show(url: string): void;
+  /** Stores the site wallpaper (home screen, and the fallback for an entry with no usable hero). */
+  setWallpaper(url: string): void;
+  /** Home: the wallpaper and its palette. */
+  showWallpaper(): void;
+  /** An entry's heroes. Empty — or all of them broken — leaves the wallpaper up. */
+  showGame(slug: string, urls: readonly string[]): void;
 }
 
 export function createHeroController(): HeroController {
   const app = req('app');
+
+  let wallpaperUrl: string | null = null;
+  // `undefined` = not computed yet, `null` = computed and unusable. The wallpaper's palette is cached on
+  // its own so returning home never re-runs the canvas read.
+  let wallpaperPalette: Palette | null | undefined;
+  // Keyed by POSITION (`${slug}#${index}`), which is why it is cleared whenever the entry changes: the
+  // same key would otherwise map to a different picture and hand it the previous one's colors.
+  const paletteCache = new Map<string, Palette | null>();
 
   // ── Palette (two dominant colors) ─────────────────────────────────────────
 
@@ -26,6 +44,36 @@ export function createHeroController(): HeroController {
     }
     app.style.setProperty('--d1', palette.d1);
     app.style.setProperty('--d2', palette.d2);
+  }
+
+  // Applies a (possibly cached) palette, but only if that image is STILL the one on screen — a slow
+  // compute for a rotated-away image must not clobber the current colors.
+  function updatePaletteFor(url: string, cacheKey: string): void {
+    const cached = paletteCache.get(cacheKey);
+    if (cached !== undefined) {
+      applyPalette(cached);
+      return;
+    }
+    void computePalette(url).then((palette) => {
+      paletteCache.set(cacheKey, palette);
+      if (shownUrl === url) applyPalette(palette);
+    });
+  }
+
+  function applyWallpaperPalette(): void {
+    if (wallpaperPalette !== undefined) {
+      applyPalette(wallpaperPalette);
+      return;
+    }
+    if (wallpaperUrl === null) {
+      applyPalette(null);
+      return;
+    }
+    const url = wallpaperUrl;
+    void computePalette(url).then((palette) => {
+      wallpaperPalette = palette;
+      if (shownUrl === url) applyPalette(palette);
+    });
   }
 
   // ── Hero background (two cross-fading layers, GTA-5-style) ──────────────────
@@ -65,15 +113,137 @@ export function createHeroController(): HeroController {
     idleLayer = previousActive;
   }
 
-  return {
-    show(url: string): void {
+  // ── Rotation ────────────────────────────────────────────────────────────────
+
+  /** '' means the home screen — no entry, no rotation. */
+  let currentSlug = '';
+  let heroUrls: readonly string[] = [];
+  let heroIndex = 0;
+  let heroTimer: number | null = null;
+  let preloadTimer: number | null = null;
+
+  function rotationEligible(): boolean {
+    return heroUrls.length > 1 && document.visibilityState === 'visible' && currentSlug !== '';
+  }
+
+  function stopRotation(): void {
+    if (heroTimer !== null) {
+      window.clearInterval(heroTimer);
+      heroTimer = null;
+    }
+    if (preloadTimer !== null) {
+      window.clearTimeout(preloadTimer);
+      preloadTimer = null;
+    }
+  }
+
+  // Fetch the NEXT image shortly before it is due, rather than pulling the whole set up front: three
+  // 1080p-to-1440p heroes are well over a megabyte, and the third one is not needed for two minutes.
+  function armNextPreload(): void {
+    if (preloadTimer !== null) window.clearTimeout(preloadTimer);
+    preloadTimer = window.setTimeout(
+      () => {
+        preloadTimer = null;
+        const next = heroUrls[(heroIndex + 1) % heroUrls.length];
+        if (next !== undefined) void preload(next).catch(() => undefined);
+      },
+      Math.max(0, HERO_ROTATE_MS - PRELOAD_LEAD_MS),
+    );
+  }
+
+  // Idempotent: an already-running eligible rotation is left alone, so repeated calls can't starve it by
+  // resetting the interval and the image would never actually change.
+  function startRotation(): void {
+    if (!rotationEligible()) {
+      stopRotation();
+      return;
+    }
+    if (heroTimer !== null) return;
+    armNextPreload();
+    heroTimer = window.setInterval(() => {
+      const index = (heroIndex + 1) % heroUrls.length;
+      const url = heroUrls[index];
+      armNextPreload();
+      if (url === undefined) return;
+      const slug = currentSlug;
+      void preload(url).then(
+        () => {
+          // The entry may have changed while this was in flight.
+          if (currentSlug !== slug) return;
+          heroIndex = index;
+          showImage(url);
+          updatePaletteFor(url, `${slug}#${index}`);
+        },
+        // A broken URL mid-rotation: keep whatever is on screen and try the next one next minute.
+        () => undefined,
+      );
+    }, HERO_ROTATE_MS);
+  }
+
+  document.addEventListener('visibilitychange', () => startRotation());
+
+  function applyWallpaper(): void {
+    if (wallpaperUrl === null) return;
+    showImage(wallpaperUrl);
+    applyWallpaperPalette();
+  }
+
+  // Paints the first hero that actually loads. Walking the list rather than trusting heroUrls[0] is the
+  // browser-side replacement for the launcher's guarantee that the array is never empty (there, main
+  // substitutes the bundled wallpaper before the renderer ever sees it — asset-reader.ts).
+  async function showFirstUsable(slug: string, urls: readonly string[]): Promise<void> {
+    for (const [index, url] of urls.entries()) {
+      try {
+        await preload(url);
+      } catch {
+        continue;
+      }
+      if (currentSlug !== slug) return;
+      heroIndex = index;
       showImage(url);
-      // The palette is a canvas read of the same (same-origin, already-decoded) image, so it lands a
-      // frame or two later; getImageData failures resolve to null and leave the CSS fallbacks — which,
-      // unlike in the launcher, are this very wallpaper's colors, so nothing visibly shifts.
-      void computePalette(url).then((palette) => {
-        if (shownUrl === url) applyPalette(palette);
-      });
+      updatePaletteFor(url, `${slug}#${index}`);
+      startRotation();
+      return;
+    }
+    if (currentSlug === slug) applyWallpaper();
+  }
+
+  return {
+    setWallpaper(url: string): void {
+      wallpaperUrl = url;
+      wallpaperPalette = undefined;
+      // Nothing on screen yet: paint it. This is also what covers a cold deep link to a game — the
+      // wallpaper fills the wait, then cross-fades into the entry's own hero when that arrives.
+      if (shownUrl === null) applyWallpaper();
+    },
+
+    showWallpaper(): void {
+      currentSlug = '';
+      heroUrls = [];
+      heroIndex = 0;
+      paletteCache.clear();
+      stopRotation();
+      applyWallpaper();
+    },
+
+    showGame(slug: string, urls: readonly string[]): void {
+      // Idempotent by content, not by slug: the route lands before the feed does, so the same entry
+      // legitimately arrives twice — first with nothing, then with its images.
+      const unchanged =
+        slug === currentSlug &&
+        urls.length === heroUrls.length &&
+        urls.every((url, index) => url === heroUrls[index]);
+      if (unchanged) return;
+      currentSlug = slug;
+      heroUrls = urls;
+      heroIndex = 0;
+      paletteCache.clear();
+      stopRotation();
+      if (urls.length === 0) {
+        applyWallpaper();
+        return;
+      }
+      void showFirstUsable(slug, urls);
     },
   };
 }

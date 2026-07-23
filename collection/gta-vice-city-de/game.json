@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "gta-vice-city-de",
+  "title": "Grand Theft Auto: Vice City – The Definitive Edition",
+  "executable": "Game/Gameface/Binaries/Win64/ViceCity.exe",
+  "umuGameId": "1546990",
+  "heroImage": [
+    "assets/hero.jpg",
+    "assets/1076235.png",
+    "assets/1124247.png"
+  ],
+  "saveOnCard": "saves",
+  "pcSavePath": "%DOCUMENTS%/Rockstar Games/GTA Vice City Definitive Edition/SaveGames",
+  "sounds": {
+    "play": "assets/play.wav",
+    "navigate": "assets/move.wav",
+    "button": "assets/button.wav",
+    "back": "assets/back.wav"
+  },
+  "backgroundMusic": "assets/theme.mp3"
+}
