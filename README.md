@@ -1,5 +1,9 @@
 # playhook-collection
 
+> A companion project to **[Playhook](https://github.com/sevenns/playhook)** — the tray launcher that
+> turns a removable drive into a console-style game cartridge. This repository is its collection of
+> ready-made game cards, plus a web showcase of the launcher's UI.
+
 Two things live here:
 
 1. **The site** — [sevenns.github.io/playhook-collection](https://sevenns.github.io/playhook-collection/).
