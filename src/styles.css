@@ -638,6 +638,12 @@ html:not(.cursor-hidden) .rect-button:hover,
   overflow: hidden;
   /* Containing block for the absolutely-positioned mirror, so it can't stretch anything. */
   position: relative;
+  /* Same 424 cap as a game button, and for the same reason: the box grows LEFT from a fixed right edge,
+     so without it a wide enough query walks straight out of the column and over the veil. The input's
+     `maxlength` bounds the text but not its width — 24 capitals are twice as wide as 24 lowercase.
+     Past the cap the field shrinks (min-width:0) and scrolls its own content, which keeps the caret
+     in view — the one thing a plain `overflow: hidden` would not. */
+  max-width: calc(100% - 26 * var(--px));
 }
 
 .input-prefix,
