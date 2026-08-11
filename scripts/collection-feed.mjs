@@ -5,7 +5,7 @@
 //   dist/api/v1/index.json          the whole catalogue, one entry per game, sorted by title
 //   dist/api/v1/<slug>.json         one entry (the contract the launcher's Configure window targets)
 //   dist/api/v1/<slug>/game.json    the manifest itself
-//   dist/api/v1/<slug>/assets/**    everything the entry ships (hero images, sounds, music)
+//   dist/api/v1/<slug>/assets/**    everything the entry ships (hero images, the cover, music)
 //
 // The site reads ONLY index.json — it carries the full preview payload per entry, so opening the list
 // is one request. The per-slug files exist for the launcher, and are generated here so the two never
@@ -14,14 +14,17 @@
 // Failure policy is deliberately split: a malformed ENTRY (bad slug, invalid manifest) FAILS the build,
 // because an entry that silently drops out of the feed is diagnosed painfully; a missing PREVIEW asset
 // only warns and drops that one field, because a degraded preview is not worth a red build.
-import { cp, mkdir, readdir, readFile, writeFile, access } from 'node:fs/promises';
+import { cp, mkdir, readdir, readFile, stat, writeFile, access } from 'node:fs/promises';
 import { basename, join, posix } from 'node:path';
 import Ajv2020 from 'ajv/dist/2020.js';
 
 const SLUG_RE = /^[a-z0-9-]+$/;
 
-/** The UI sound slots the site knows about. Anything else in a preview block is ignored. */
-const SFX_SLOTS = ['navigate', 'button', 'back', 'play'];
+/**
+ * Playhook's own cap on hero backgrounds (MAX_HERO_IMAGES in the launcher's shared/types.ts). The zod
+ * schema carries no `.max`, so it never reaches schema/game.schema.json — see schema/SOURCE.md.
+ */
+const MAX_HERO_IMAGES = 3;
 
 const exists = async (path) => {
   try {
@@ -47,28 +50,32 @@ async function compileManifestValidator(root) {
 }
 
 /**
+ * A manifest is `oneOf` [one game, an array of games] — the schema says so, and every gate below has to
+ * run per GAME or a multi-game card would sail past all of them. Normalising once, here, is what keeps
+ * the rest of this file from re-deciding the question in five places.
+ */
+const gamesOf = (manifest) => (Array.isArray(manifest) ? manifest : [manifest]);
+
+/** `heroImage` is a string OR an array. A naive `.length` on the string form counts CHARACTERS. */
+const heroesOf = (game) =>
+  Array.isArray(game.heroImage)
+    ? game.heroImage
+    : typeof game.heroImage === 'string'
+      ? [game.heroImage]
+      : [];
+
+/**
  * Derives a preview block from the manifest when meta.json has none. A fallback for typical entries,
  * NOT a contract: manifest paths are card-relative, so this only guesses that the basename lives in
- * `assets/`. See collection/README.md.
+ * `assets/`. See collection/README.md. Takes ONE game — a multi-game card previews as its first.
  */
-function previewFromManifest(manifest) {
-  const heroes = Array.isArray(manifest.heroImage)
-    ? manifest.heroImage
-    : typeof manifest.heroImage === 'string'
-      ? [manifest.heroImage]
-      : [];
+function previewFromManifest(game) {
+  const heroes = heroesOf(game);
   const preview = {};
   if (heroes.length > 0) preview.hero = heroes.map((p) => `assets/${basename(p)}`);
-  if (typeof manifest.sounds === 'object' && manifest.sounds !== null) {
-    const sounds = {};
-    for (const slot of SFX_SLOTS) {
-      const value = manifest.sounds[slot];
-      if (typeof value === 'string') sounds[slot] = `assets/${basename(value)}`;
-    }
-    if (Object.keys(sounds).length > 0) preview.sounds = sounds;
-  }
-  if (typeof manifest.backgroundMusic === 'string') {
-    preview.music = `assets/${basename(manifest.backgroundMusic)}`;
+  if (typeof game.gridImage === 'string') preview.grid = `assets/${basename(game.gridImage)}`;
+  if (typeof game.backgroundMusic === 'string') {
+    preview.music = `assets/${basename(game.backgroundMusic)}`;
   }
   return preview;
 }
@@ -87,16 +94,50 @@ async function verifyPreview(preview, entryDir, slug) {
     if (await keep(path)) hero.push(path);
   }
 
-  const sounds = {};
-  const declared =
-    typeof preview.sounds === 'object' && preview.sounds !== null ? preview.sounds : {};
-  for (const slot of SFX_SLOTS) {
-    if (await keep(declared[slot])) sounds[slot] = declared[slot];
-  }
-
+  const grid = (await keep(preview.grid)) ? preview.grid : null;
   const music = (await keep(preview.music)) ? preview.music : null;
 
-  return { hero, sounds, music };
+  return { hero, grid, music };
+}
+
+/**
+ * A webp cover is served to the launcher AS IS: nativeImage cannot decode webp, so the launcher builds
+ * no thumbnail and re-encodes nothing — and a webp over its 4 MiB cap is skipped outright, leaving the
+ * carousel card blank. Keeping the file small is OUR job, hence a warning rather than silence.
+ */
+const GRID_WARN_BYTES = 150 * 1024;
+
+async function warnOversizedGrid(gridPath, entryDir, slug) {
+  if (gridPath === null) return;
+  const { size } = await stat(join(entryDir, gridPath));
+  if (size <= GRID_WARN_BYTES) return;
+  console.warn(
+    `  ! ${slug}: cover is ${Math.round(size / 1024)} KB — keep it under ${GRID_WARN_BYTES / 1024} KB (webp is never re-encoded, see collection/README.md)`,
+  );
+}
+
+/**
+ * The rules Playhook enforces at runtime but `schema/game.schema.json` cannot express. They fail the
+ * build rather than warn: a manifest published here is a template other people copy, so an entry the
+ * launcher would quietly degrade is worse than a red build. See schema/SOURCE.md.
+ */
+function gateManifest(manifest, slug) {
+  for (const game of gamesOf(manifest)) {
+    const where = `collection/${slug}/game.json${typeof game.id === 'string' ? ` (id=${game.id})` : ''}`;
+
+    const heroes = heroesOf(game);
+    if (heroes.length > MAX_HERO_IMAGES) {
+      throw new Error(
+        `${where}: ${heroes.length} heroImage entries — Playhook uses the first ${MAX_HERO_IMAGES} and drops the rest`,
+      );
+    }
+
+    if (game.sounds !== undefined) {
+      throw new Error(
+        `${where}: "sounds" was removed from the card format in 0.7.0 — UI sounds now come from the set chosen in Settings. Drop the block (backgroundMusic stays)`,
+      );
+    }
+  }
 }
 
 /**
@@ -138,6 +179,7 @@ export async function buildCollectionFeed(root, dist) {
         .join('; ');
       throw new Error(`collection/${slug}/game.json fails schema/game.schema.json: ${detail}`);
     }
+    gateManifest(manifest, slug);
 
     const metaPath = join(entryDir, 'meta.json');
     if (!(await exists(metaPath))) {
@@ -154,12 +196,24 @@ export async function buildCollectionFeed(root, dist) {
     const declaredPreview =
       typeof meta.preview === 'object' && meta.preview !== null
         ? meta.preview
-        : previewFromManifest(manifest);
+        : previewFromManifest(gamesOf(manifest)[0]);
+
+    // Warn, don't fail: the preview and the manifest "are allowed to differ" (collection/README.md), and
+    // a degraded preview is not worth a red build. Checked on what meta.json DECLARES — verifyPreview
+    // drops missing files below and would hide a fourth entry that simply isn't there.
+    if (Array.isArray(declaredPreview.hero) && declaredPreview.hero.length > MAX_HERO_IMAGES) {
+      console.warn(
+        `  ! ${slug}: preview declares ${declaredPreview.hero.length} hero images — showing the first ${MAX_HERO_IMAGES}, like the launcher`,
+      );
+      declaredPreview.hero = declaredPreview.hero.slice(0, MAX_HERO_IMAGES);
+    }
+
     const preview = await verifyPreview(declaredPreview, entryDir, slug);
+    await warnOversizedGrid(preview.grid, entryDir, slug);
 
     // The WHOLE assets directory travels, not just what the preview names: this is also the directory a
-    // human drops on their card, and the manifest references files the site never plays (the `play`
-    // slot's source, save folders). Dot-files (.DS_Store and friends) stay behind.
+    // human drops on their card, and the manifest references files the site never opens (save folders).
+    // Dot-files (.DS_Store and friends) stay behind.
     if (await exists(join(entryDir, 'assets'))) {
       await cp(join(entryDir, 'assets'), join(outDir, slug, 'assets'), {
         recursive: true,
@@ -179,10 +233,8 @@ export async function buildCollectionFeed(root, dist) {
       sourcePath: posix.join('collection', slug),
       manifestUrl: posix.join(slug, 'game.json'),
       heroUrls: preview.hero.map((p) => posix.join(slug, p)),
-      sounds: Object.fromEntries(
-        Object.entries(preview.sounds).map(([slot, p]) => [slot, posix.join(slug, p)]),
-      ),
     };
+    if (preview.grid !== null) entry.gridUrl = posix.join(slug, preview.grid);
     if (typeof meta.steamAppId === 'number') entry.steamAppId = meta.steamAppId;
     if (preview.music !== null) entry.music = posix.join(slug, preview.music);
 

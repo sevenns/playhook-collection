@@ -57,6 +57,10 @@
             }
           ]
         },
+        "gridImage": {
+          "type": "string",
+          "minLength": 1
+        },
         "saveOnCard": {
           "type": "string",
           "minLength": 1
@@ -76,27 +80,6 @@
           "type": "integer",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991
-        },
-        "sounds": {
-          "type": "object",
-          "properties": {
-            "play": {
-              "type": "string",
-              "minLength": 1
-            },
-            "navigate": {
-              "type": "string",
-              "minLength": 1
-            },
-            "button": {
-              "type": "string",
-              "minLength": 1
-            },
-            "back": {
-              "type": "string",
-              "minLength": 1
-            }
-          }
         },
         "backgroundMusic": {
           "type": "string",
@@ -234,6 +217,10 @@
               }
             ]
           },
+          "gridImage": {
+            "type": "string",
+            "minLength": 1
+          },
           "saveOnCard": {
             "type": "string",
             "minLength": 1
@@ -253,27 +240,6 @@
             "type": "integer",
             "exclusiveMinimum": 0,
             "maximum": 9007199254740991
-          },
-          "sounds": {
-            "type": "object",
-            "properties": {
-              "play": {
-                "type": "string",
-                "minLength": 1
-              },
-              "navigate": {
-                "type": "string",
-                "minLength": 1
-              },
-              "button": {
-                "type": "string",
-                "minLength": 1
-              },
-              "back": {
-                "type": "string",
-                "minLength": 1
-              }
-            }
           },
           "backgroundMusic": {
             "type": "string",

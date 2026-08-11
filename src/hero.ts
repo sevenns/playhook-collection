@@ -21,10 +21,13 @@ export interface HeroController {
   showWallpaper(): void;
   /** An entry's heroes. Empty — or all of them broken — leaves the wallpaper up. */
   showGame(slug: string, urls: readonly string[]): void;
+  /** Parallax offset in DESIGN px: the background drifts with the carousel (see #hero-pan in styles.css). */
+  setParallax(designPx: number): void;
 }
 
 export function createHeroController(): HeroController {
   const app = req('app');
+  const heroPanEl = req('hero-pan');
 
   let wallpaperUrl: string | null = null;
   // `undefined` = not computed yet, `null` = computed and unusable. The wallpaper's palette is cached on
@@ -244,6 +247,12 @@ export function createHeroController(): HeroController {
         return;
       }
       void showFirstUsable(slug, urls);
+    },
+
+    setParallax(designPx: number): void {
+      // On the pan wrapper, not on #hero: each layer's own transform is already spoken for by the bg-pan
+      // animation, and one element can only transition its transform at one speed — see styles.css.
+      heroPanEl.style.setProperty('--hero-parallax', `calc(${designPx} * var(--px))`);
     },
   };
 }

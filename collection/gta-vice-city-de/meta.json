@@ -5,12 +5,7 @@
   "tested": ["win32", "linux"],
   "preview": {
     "hero": ["assets/hero.jpg", "assets/1076235.png", "assets/1124247.png"],
-    "sounds": {
-      "play": "assets/play.wav",
-      "navigate": "assets/move.wav",
-      "button": "assets/button.wav",
-      "back": "assets/back.wav"
-    },
+    "grid": "assets/grid.webp",
     "music": "assets/theme.mp3"
   }
 }

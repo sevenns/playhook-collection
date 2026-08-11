@@ -2,13 +2,14 @@
 // window will point at (see collection/README.md). Generated at build time by scripts/collection-feed.mjs
 // from the `collection/` directory.
 //
-// ONE request, not two: index.json carries the full preview payload for every entry (hero images, per-game
-// sounds, music), so opening the list needs nothing else. The per-slug files the generator also writes are
-// for the launcher; the site never reads them. With entries in the dozens and a few hundred bytes each,
-// lazy per-entry loading would only buy a cache, a loading state on the game screen and a second class of
-// network error.
+// ONE request, not two: index.json carries the full preview payload for every entry (hero images, the
+// carousel cover, music), so opening the list needs nothing else. The per-slug files the generator also
+// writes are for the launcher; the site never reads them. With entries in the dozens and a few hundred
+// bytes each, lazy per-entry loading would only buy a cache, a loading state on the game screen and a
+// second class of network error.
 
-import { type SfxName } from './audio.js';
+/** What the catalogue is currently able to show. `ready` still covers "the catalogue is empty". */
+export type ListState = 'loading' | 'ready' | 'error';
 
 /** One catalogue entry, with every URL already resolved against the feed directory. */
 export interface CollectionEntry {
@@ -21,8 +22,8 @@ export interface CollectionEntry {
   readonly sourcePath: string;
   readonly manifestUrl: string;
   readonly heroUrls: readonly string[];
-  /** Per-game overrides for the UI sound slots; missing slots fall back to the site's default set. */
-  readonly sounds: Partial<Record<SfxName, string>>;
+  /** The carousel cover (2:3 portrait). Optional: a card without one falls back to its first hero. */
+  readonly gridUrl?: string;
   readonly music: string | null;
 }
 
@@ -50,8 +51,6 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const asString = (value: unknown): string | null =>
   typeof value === 'string' && value.length > 0 ? value : null;
 
-const SFX_SLOTS: readonly SfxName[] = ['navigate', 'button', 'back', 'play'];
-
 /** Parses one raw entry, or returns null if it doesn't carry the fields the UI needs. */
 function parseEntry(raw: unknown): CollectionEntry | null {
   if (!isRecord(raw)) return null;
@@ -67,15 +66,7 @@ function parseEntry(raw: unknown): CollectionEntry | null {
     }
   }
 
-  const sounds: Partial<Record<SfxName, string>> = {};
-  const rawSounds = raw['sounds'];
-  if (isRecord(rawSounds)) {
-    for (const slot of SFX_SLOTS) {
-      const path = asString(rawSounds[slot]);
-      if (path !== null) sounds[slot] = assetUrl(path);
-    }
-  }
-
+  const gridUrl = asString(raw['gridUrl']);
   const music = asString(raw['music']);
   const steamAppId = raw['steamAppId'];
 
@@ -87,7 +78,7 @@ function parseEntry(raw: unknown): CollectionEntry | null {
     sourcePath: asString(raw['sourcePath']) ?? `collection/${slug}`,
     manifestUrl: assetUrl(asString(raw['manifestUrl']) ?? `${slug}/game.json`),
     heroUrls,
-    sounds,
+    ...(gridUrl !== null ? { gridUrl: assetUrl(gridUrl) } : {}),
     music: music !== null ? assetUrl(music) : null,
   };
 }

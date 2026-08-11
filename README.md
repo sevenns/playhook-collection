@@ -8,11 +8,12 @@ Two things live here:
 
 1. **The site** — [sevenns.github.io/playhook-collection](https://sevenns.github.io/playhook-collection/).
    It is [Playhook](https://github.com/sevenns/playhook)'s own UI, rebuilt as a static page: same hero,
-   same bar, same menu, same sounds, same gamepad. Its Collection view browses the catalogue below, and
-   picking an entry previews it the way the launcher would — that entry's hero images rotating, its own
-   UI sounds, its own background music.
-2. **The collection** — ready-made `game.json` manifests per game (sounds, hero, save paths, titles), so
-   you don't have to write one from scratch. See [collection/README.md](collection/README.md).
+   same bar, same menu, same sounds, same gamepad. Its Collection view browses the catalogue as a
+   carousel of covers, and picking an entry previews it the way the launcher would — that entry's hero
+   images rotating, its own background music.
+2. **The collection** — ready-made `game.json` manifests per game (hero images, the carousel cover, save
+   paths, titles), so you don't have to write one from scratch. See
+   [collection/README.md](collection/README.md).
 
 The site is the first consumer of the collection's own JSON feed (`api/v1/index.json`), which is
 generated on every build and is the same address the launcher's Configure window will point at. That way

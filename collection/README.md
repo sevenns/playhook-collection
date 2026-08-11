@@ -9,7 +9,7 @@ collection/
 └─ <slug>/                # [a-z0-9-]+, matching the game.json id where that is possible
    ├─ game.json           # the manifest itself: one object, schemaVersion: 1
    ├─ meta.json           # everything about the entry that is not the manifest (see below)
-   └─ assets/             # hero images, UI sounds, background music - whatever game.json references
+   └─ assets/             # hero images, the carousel cover, background music - whatever game.json references
 ```
 
 `meta.json`:
@@ -24,7 +24,7 @@ collection/
   "notes": "Anything a user needs to know before dropping this on a card.",
   "preview": {
     "hero": ["assets/hero-1.webp", "assets/hero-2.webp"],
-    "sounds": { "navigate": "assets/move.ogg", "button": "assets/button.ogg" },
+    "grid": "assets/grid.webp",
     "music": "assets/theme.ogg"
   }
 }
@@ -37,24 +37,40 @@ actually ran the manifest — not the date the file was committed, and it is wha
 **`preview` is what the site shows**, listed explicitly rather than read out of the manifest. The
 manifest is a file for somebody's card: its paths are card-relative and it references things the site has
 no use for. The preview is the shop window, and the two are allowed to differ. Paths are relative to the
-entry directory. Slots come from Playhook's own vocabulary — `navigate` (the file is historically called
-`move.*`), `button`, `back`, `play` — and any slot you leave out falls back to the site's default set.
+entry directory. `hero` is capped at three, like the manifest: a longer list is trimmed with a warning
+rather than failing the build.
 
-Without a `preview` block the generator guesses one from the manifest (`heroImage` / `sounds` /
+Without a `preview` block the generator guesses one from the manifest (`heroImage` / `gridImage` /
 `backgroundMusic`, each mapped to `assets/<basename>`). That is a convenience for typical entries, not a
 contract: write the block if you care what the preview shows. A file named in `preview` that does not
 exist is a warning, not an error — the preview degrades, the build survives.
 
+Entries carry **no UI sounds**. The block left the card format in Playhook 0.7.0: the launcher always
+plays the sound set chosen in its Settings, and the site plays its own bundled set. A stale `sounds`
+block in a `game.json` still passes the schema — it is not strict — so the feed generator fails the
+build on one instead, because what is published here is a template other people copy.
+
 ## Rules
 
 **Entries ship their own assets.** An entry is not just a manifest: `assets/` carries the hero images,
-the UI sounds and the background music it references. Those files are both what you drop on your own
-card and what the site plays on the entry's preview screen, so they travel with the entry instead of
+the carousel cover and the background music it references. Those files are both what you drop on your own
+card and what the site shows on the entry's preview screen, so they travel with the entry instead of
 being left for the user to source. Manifest paths stay **card-relative** and resolve inside the entry
 directory.
 
 Keep them web-sized. Everything under `assets/` is served from GitHub Pages and downloaded by anyone
-who opens the preview: prefer webp over jpg, ogg over wav, and don't ship a lossless soundtrack.
+who opens the preview: prefer webp over jpg, and don't ship a lossless soundtrack.
+
+**At most three `heroImage` entries.** Playhook 0.7.0 caps them: the runtime keeps the first three and
+logs a warning, Configure refuses to save a fourth. The schema cannot express the cap, so the feed
+generator fails the build on it.
+
+**One `gridImage`, 600x900 webp, under 150 KB.** It is the carousel card's cover, portrait 2:3 to match
+the card itself; without it the carousel crops the first hero instead, so it is optional but worth
+having. The size limit is not caution, it is a requirement: Electron's `nativeImage` does not decode
+webp, so the launcher builds **no thumbnail and re-encodes nothing** — it hands the file to Chromium as
+it is, and a webp over 4 MiB is skipped outright, leaving the card blank. Nobody shrinks the cover for
+you.
 
 **Validate before you publish.** `../schema/game.schema.json` is the launcher's own schema, so a
 mismatch is a real error. But passing it is not enough: the rules that matter most (steam/install/
@@ -84,7 +100,7 @@ Index entry shape:
   "sourcePath": "collection/bloodborne",
   "manifestUrl": "bloodborne/game.json",
   "heroUrls": ["bloodborne/assets/hero-1.webp"],
-  "sounds": { "navigate": "bloodborne/assets/move.ogg" },
+  "gridUrl": "bloodborne/assets/grid.webp", // optional
   "music": "bloodborne/assets/theme.ogg"  // optional
 }
 ```
@@ -101,7 +117,8 @@ The generator is `scripts/collection-feed.mjs`, run from `scripts/build.mjs`. It
 `game.json` against `../schema/game.schema.json` and **fails the build** on a schema error or a
 slug outside `[a-z0-9-]+` — an entry that silently vanishes from the feed is diagnosed painfully. The
 whole `assets/` directory is copied, not just what `preview` names: that directory is also what a human
-drops on their card, and the manifest points at files the site never plays.
+drops on their card, and the manifest points at files the site never opens. It also enforces what the
+schema cannot: more than three `heroImage` entries, or a leftover `sounds` block, fail the build.
 
 What is deployed is `dist/`, assembled by `scripts/build.mjs` from `src/` and `public/`. This
 `collection/` directory is the **source** and does not reach GitHub Pages on its own.

@@ -28,10 +28,21 @@
   <body>
     <main id="app" data-route="home">
       <!-- Hero background: two stacked layers behind all UI (z-index only on the container, see
-           styles.css). JS writes the image + pan into the idle layer and cross-fades it in, GTA-5-style. -->
+           styles.css). JS writes the image + pan into the idle layer and cross-fades it in, GTA-5-style.
+           #hero carries the screen zoom (fast, on entering an entry), #hero-pan the carousel parallax
+           (slow) — one element could only carry one transform at one speed. -->
       <div id="hero">
-        <div class="hero-layer"></div>
-        <div class="hero-layer"></div>
+        <div id="hero-pan">
+          <div class="hero-layer"></div>
+          <div class="hero-layer"></div>
+        </div>
+      </div>
+
+      <!-- The collection carousel (the `carousel` screen): a horizontal strip of covers sliding under a
+           fixed anchor, over the landing page. Cards are built from JS (carousel.ts); a cover is loaded
+           only once its card comes near the selection. -->
+      <div id="carousel" aria-hidden="true">
+        <div id="carousel-strip"></div>
       </div>
 
       <!-- Bottom bar, ported from the launcher: the two-line title+status block, More on the right, and
@@ -40,9 +51,10 @@
            inlined so there is no empty frame before the script runs. -->
       <footer id="bottom-bar">
         <div class="bar-content">
-          <!-- Play: the launcher's own button, ported for the resemblance and nothing else — it plays the
-               `play` sound and does NOT launch anything. There is no window.api on a web page; if you are
-               looking for the missing handler, this is it. -->
+          <!-- Play: the launcher's own button. There is no window.api on a web page and nothing is
+               started; what it drives is a PRETEND session (session.ts) that walks the same phases the
+               launcher does, so the bar behaves the way the product's does. Force close, in the menu,
+               ends it. -->
           <button id="play-button" class="play-button" type="button" aria-label="Play">
             <!-- Play triangle with rounded corners (quadratic beziers through each vertex, ~6-unit
                  edge offset) so it matches the 10px-radius language of the rest of the UI. -->
@@ -51,6 +63,10 @@
                 d="M6.94 5.4 L29.06 20.6 Q34 24 29.06 27.4 L6.94 42.6 Q2 46 2 40 L2 8 Q2 2 6.94 5.4 Z"
               />
             </svg>
+            <!-- The spinner arc that replaces the triangle while a session is launching or closing
+                 down (see session.ts). The launcher also has a gear here for install/uninstall — the
+                 site installs nothing. -->
+            <span class="loader" aria-hidden="true"></span>
           </button>
 
           <div id="status" class="status">Bring console vibes to your PC</div>
@@ -74,12 +90,23 @@
       </footer>
 
       <!-- Menu popup: ONE frosted veil + ONE right-side column (450px), same component as the launcher's,
-           with two of its four views. Default focus is the BOTTOM button in both — see controls.ts.
+           with one of its four views. Default focus is the BOTTOM button — see controls.ts.
            `inert` while closed: the column only fades out via opacity, so without it the buttons would
            stay in the tab order (the launcher never cared — it is a kiosk with no tab key). -->
       <section id="popup" class="popup" aria-hidden="true" data-view="details" inert>
         <div class="popup-veil"></div>
         <div class="popup-column">
+          <!-- Top content: the entry's play statistics, built from JS (stats.ts). Same shape as the
+               launcher's info panel — and, unlike it, made up: a showcase counts no sessions. -->
+          <div class="popup-content">
+            <div class="popup-info" id="info-panel"></div>
+            <!-- confirm: the force-close question. The launcher's confirm view also carries an
+                 install-path note; nothing here is installed, so the message stands alone. -->
+            <div class="popup-confirm">
+              <div class="popup-message" id="confirm-message"></div>
+            </div>
+          </div>
+
           <!-- Bottom action stacks — one group per view; only the active view's group shows (CSS).
                Each is a vertical stack aligned to the right edge: a longer label grows to the LEFT,
                the right edge stays fixed. -->
@@ -92,43 +119,21 @@
               <a id="menu-github" class="text-button" href="https://github.com/sevenns/playhook"
                 >Github</a
               >
-              <!-- Collection is a VIEW, not a route: this switches the popup to the game list, from the
-                   home screen and from a game screen alike (mockups 1 and 5). -->
-              <button id="menu-collection" class="text-button" type="button">Collection</button>
+              <!-- Library: the one way into the carousel and the one way back to it. On the landing page
+                   it opens the strip, on an entry screen it returns to it — the mouse counterpart of the
+                   B button. Hidden only where there is no carousel to show (see controls.ts). -->
+              <button id="menu-library" class="text-button" type="button">Library</button>
+              <!-- Force close: the only way out of a session. Shown while one is RUNNING and not
+                   already closing down — exactly the launcher's rule (see controls.ts). -->
+              <button id="menu-kill" class="text-button is-hidden" type="button">Force close</button>
               <button id="menu-close" class="text-button" type="button">Close</button>
             </div>
 
-            <!-- Select-game list: the catalogue (built from JS, each a .text-button carrying data-slug)
-                 inside a scrollable box, with Search and Close pinned below it so both stay reachable
-                 while the list scrolls. -->
-            <div class="actions-group" data-group="select-game">
-              <!-- The native scrollbar is hidden and replaced by #select-game-thumb: a real element, so
-                   it can fade in/out (Chromium never animates ::-webkit-scrollbar). controls.ts
-                   positions it from the list's scroll geometry. -->
-              <div class="select-game-scroll">
-                <div id="select-game-list" class="select-game-list"></div>
-                <div id="select-game-thumb" class="select-game-thumb" aria-hidden="true"></div>
-              </div>
-              <!-- Search: a TextButton you can type into. "Search" is a static label (it stays put while
-                   you type, as in the mockups) and the colon only appears once there is a value. The
-                   mirror span measures the value so the box grows with its content — <input> cannot size
-                   itself, and `size` counts monospace ex units, which lie on a proportional font. -->
-              <div class="text-button input-button" id="menu-search">
-                <span class="input-prefix">Search</span>
-                <span class="input-colon" aria-hidden="true">:</span>
-                <input
-                  id="search-field"
-                  class="input-field"
-                  type="text"
-                  maxlength="24"
-                  autocomplete="off"
-                  spellcheck="false"
-                  autocapitalize="off"
-                  aria-label="Search the collection"
-                />
-                <span class="input-mirror" aria-hidden="true"></span>
-              </div>
-              <button id="menu-select-close" class="text-button" type="button">Close</button>
+            <!-- confirm: Yes/No for the force close. Default focus is the BOTTOM button, which is No —
+                 the safe answer, as in the launcher. -->
+            <div class="actions-group" data-group="confirm">
+              <button id="confirm-yes" class="text-button" type="button">Yes</button>
+              <button id="confirm-no" class="text-button" type="button">No</button>
             </div>
           </div>
         </div>
