@@ -8,7 +8,9 @@ import { createControls } from './controls.js';
 import { createHeroController } from './hero.js';
 import { createRouter, type Route } from './router.js';
 import { loadIndex, type CollectionEntry, type ListState } from './collection.js';
+import { busyKindOf, createSessionController, statusOf } from './session.js';
 import { preload } from './preload.js';
+import { req } from './dom.js';
 
 // webp with a jpg fallback, both same-origin. The palette is read back off this image through a canvas,
 // which only works because it is same-origin and loaded without crossOrigin — an external URL would
@@ -27,9 +29,11 @@ const FEED_ERROR_STATUS = 'Collection unavailable';
 const HERO_PARALLAX_STEP = 8;
 const HERO_PARALLAX_MAX = 24;
 
+const app = req('app');
 const audio = createAudioController();
 const router = createRouter();
 const hero = createHeroController();
+const session = createSessionController();
 
 let feedState: ListState = 'loading';
 let entries: readonly CollectionEntry[] = [];
@@ -74,7 +78,25 @@ const carousel = createCarousel({
   },
 });
 
-const controls = createControls({ audio, router, carousel });
+const controls = createControls({ audio, router, carousel, session });
+
+/**
+ * What a session in flight shows. The bar reports it only on ITS OWN entry's screen: browsing another
+ * card while a game runs must not put that game's status under this one's name — the launcher is just as
+ * careful about it. Everywhere else the running entry is marked by its pulsing dot in the strip.
+ */
+function applySession(): void {
+  const active = session.current();
+  const route = router.current();
+  const onItsScreen = active !== null && route.kind === 'game' && route.slug === active.slug;
+  if (active !== null && onItsScreen) app.dataset['busy'] = busyKindOf(active.phase);
+  else delete app.dataset['busy'];
+  router.setGameStatus(active !== null && onItsScreen ? statusOf(active.phase) : '');
+  carousel.setBusyEntry(active?.slug ?? null);
+  controls.onSession();
+}
+
+session.subscribe(applySession);
 
 // Called on every route change AND again when the feed lands, because the two arrive in either order.
 function applyRoute(route: Route): void {
@@ -126,6 +148,8 @@ router.start((route, collection) => {
   wantsCollection = collection;
   controls.onRoute();
   applyRoute(route);
+  // A route change moves the session's status with it: onto the screen it belongs to, or off the bar.
+  applySession();
 });
 controls.start();
 

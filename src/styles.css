@@ -321,9 +321,10 @@ body {
   display: none;
 }
 
-/* The 8x8 dot marking a game that is ON THE INSERTED CARD (launchable right now). A showcase has no card
-   and no launching, so nothing here ever sets .shows-dot — the element and its rules are ported anyway,
-   so the card stays structurally identical to the launcher's and a re-port shows no diff. */
+/* The 8x8 dot. In the launcher it marks a game that is ON THE INSERTED CARD, and pulses while that game
+   is busy; a showcase has no card, so only the second meaning survives — it marks the entry a session is
+   running for (see session.ts), which is how "that one is still running" stays visible while you browse
+   another. carousel.ts computes it and sets .shows-dot / .is-busy. */
 .card-dot {
   position: absolute;
   left: 50%;
@@ -341,8 +342,7 @@ body {
   opacity: 1;
 }
 
-/* In the launcher the busy game keeps its dot pulsing wherever you are in the list. Same note as above:
-   .is-busy is never set here. */
+/* The running entry keeps its dot pulsing wherever you are in the strip. */
 .card.is-busy.shows-dot .card-dot {
   animation: dot-pulse 1.6s ease-in-out infinite;
 }
@@ -691,6 +691,45 @@ html.kbd-focus .play-button:focus-visible {
   pointer-events: none;
 }
 
+/* ── Play-button busy visuals ──────────────────────────────────────────────
+   Chosen by #app[data-busy], set from main.ts off the pretend session (session.ts). The loader arc uses
+   currentColor, so it inverts with the button on hover/focus just like the triangle. The launcher has a
+   second variant here — a slowly spinning gear for system activity (install / uninstall / a Steam
+   download) — which the site has no counterpart for and does not port. */
+
+.loader {
+  display: none;
+  width: calc(40 * var(--px));
+  height: calc(40 * var(--px));
+  border: calc(4 * var(--px)) solid color-mix(in srgb, currentColor 30%, transparent);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Game busy (launching / force closing / saving): the play triangle gives way to the loader arc. */
+#app[data-busy='game'] .icon-play {
+  display: none;
+}
+#app[data-busy='game'] .loader {
+  display: block;
+}
+
+/* Running: Play stays the play triangle — in the launcher it is summoned OVER the game and pressing it
+   returns there. No hide rule is needed (only 'game' hides the triangle); this block exists to document
+   that 'running' deliberately keeps the default. Here there is nothing to return to, so the press is a
+   no-op — see controls.ts. */
+#app[data-busy='running'] .icon-play {
+  display: block;
+}
+
 /* The carousel is a pure browsing surface, as in the launcher: no menu over it. The menu is one step
    away — B / Esc / Backspace steps back to the landing page, where More is waiting. */
 #app[data-screen='carousel'] #more-button {
@@ -859,8 +898,17 @@ html.kbd-focus .play-button:focus-visible {
   flex-direction: column;
   gap: calc(32 * var(--px));
 }
-#popup[data-view='details'] .popup-info {
+#popup[data-view='details'] .popup-info,
+#popup[data-view='confirm'] .popup-confirm {
   display: flex;
+}
+
+/* The confirm question. Larger than an info line — it is a heading, not a field. */
+.popup-message {
+  font-weight: 500;
+  font-size: calc(32 * var(--px));
+  line-height: calc(44 * var(--px));
+  color: var(--fg);
 }
 
 .info-item {
@@ -901,7 +949,8 @@ html.kbd-focus .play-button:focus-visible {
      scrolling group and it is harmless here. */
   min-height: 0;
 }
-#popup[data-view='details'] .actions-group[data-group='details'] {
+#popup[data-view='details'] .actions-group[data-group='details'],
+#popup[data-view='confirm'] .actions-group[data-group='confirm'] {
   display: flex;
 }
 

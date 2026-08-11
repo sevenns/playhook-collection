@@ -60,6 +60,8 @@ export interface Carousel {
   exists(): boolean;
   /** The selected entry, or undefined for an empty catalogue. */
   selected(): CollectionEntry | undefined;
+  /** Marks the entry a session is running for, so its card can pulse wherever it sits in the strip. */
+  setBusyEntry(slug: string | null): void;
 }
 
 export function createCarousel(deps: CarouselDeps): Carousel {
@@ -70,6 +72,7 @@ export function createCarousel(deps: CarouselDeps): Carousel {
   let entries: readonly CollectionEntry[] = [];
   let index = 0;
   let screen: Screen = 'home';
+  let busySlug: string | null = null;
   // While the strip is coming back from an entry screen the selected card is still growing out of the
   // play square. Moving the selection through that resizes and reorders a card mid-morph, which shows.
   // Timestamp (performance.now) until which a move is refused; 0 = the card stands at full size.
@@ -95,6 +98,12 @@ export function createCarousel(deps: CarouselDeps): Carousel {
       const card = cards.get(entry.slug);
       if (card === undefined) return;
       card.classList.toggle('is-selected', entry.slug === current?.slug);
+      // The dot marks "a session is running for this game" — the only meaning it can carry here, and the
+      // launcher's second one for it: the pulse is how "game A is still running" stays visible while you
+      // browse game B. Its first meaning there, "this game is on the inserted card", has no counterpart.
+      const busy = entry.slug === busySlug;
+      card.classList.toggle('is-busy', busy);
+      card.classList.toggle('shows-dot', busy);
       // Its place in the fan the strip returns in (styles.css turns this into a transition-delay).
       card.style.setProperty('--fan', String(fanIndex(position, index)));
     });
@@ -125,8 +134,8 @@ export function createCarousel(deps: CarouselDeps): Carousel {
     label.className = 'card-label';
     // Feed data is untrusted (it comes from a JSON file) — textContent, never innerHTML.
     label.textContent = entry.title;
-    // The dot marks "this game is on the inserted card", which no showcase can mean: the element is here
-    // so the card stays structurally identical to the launcher's, and `.shows-dot` is simply never set.
+    // Whether this card wears the dot is decided per render by applyLayout — it depends on what is
+    // running, not on this entry alone.
     const dot = document.createElement('span');
     dot.className = 'card-dot';
     card.append(label, dot);
@@ -246,5 +255,11 @@ export function createCarousel(deps: CarouselDeps): Carousel {
     setScreen,
     exists,
     selected,
+
+    setBusyEntry(slug: string | null): void {
+      if (slug === busySlug) return;
+      busySlug = slug;
+      applyLayout();
+    },
   };
 }

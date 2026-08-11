@@ -51,9 +51,10 @@
            inlined so there is no empty frame before the script runs. -->
       <footer id="bottom-bar">
         <div class="bar-content">
-          <!-- Play: the launcher's own button, ported for the resemblance and nothing else — it plays the
-               `play` sound and does NOT launch anything. There is no window.api on a web page; if you are
-               looking for the missing handler, this is it. -->
+          <!-- Play: the launcher's own button. There is no window.api on a web page and nothing is
+               started; what it drives is a PRETEND session (session.ts) that walks the same phases the
+               launcher does, so the bar behaves the way the product's does. Force close, in the menu,
+               ends it. -->
           <button id="play-button" class="play-button" type="button" aria-label="Play">
             <!-- Play triangle with rounded corners (quadratic beziers through each vertex, ~6-unit
                  edge offset) so it matches the 10px-radius language of the rest of the UI. -->
@@ -62,6 +63,10 @@
                 d="M6.94 5.4 L29.06 20.6 Q34 24 29.06 27.4 L6.94 42.6 Q2 46 2 40 L2 8 Q2 2 6.94 5.4 Z"
               />
             </svg>
+            <!-- The spinner arc that replaces the triangle while a session is launching or closing
+                 down (see session.ts). The launcher also has a gear here for install/uninstall — the
+                 site installs nothing. -->
+            <span class="loader" aria-hidden="true"></span>
           </button>
 
           <div id="status" class="status">Bring console vibes to your PC</div>
@@ -95,6 +100,11 @@
                launcher's info panel — and, unlike it, made up: a showcase counts no sessions. -->
           <div class="popup-content">
             <div class="popup-info" id="info-panel"></div>
+            <!-- confirm: the force-close question. The launcher's confirm view also carries an
+                 install-path note; nothing here is installed, so the message stands alone. -->
+            <div class="popup-confirm">
+              <div class="popup-message" id="confirm-message"></div>
+            </div>
           </div>
 
           <!-- Bottom action stacks — one group per view; only the active view's group shows (CSS).
@@ -113,7 +123,17 @@
                    it opens the strip, on an entry screen it returns to it — the mouse counterpart of the
                    B button. Hidden only where there is no carousel to show (see controls.ts). -->
               <button id="menu-library" class="text-button" type="button">Library</button>
+              <!-- Force close: the only way out of a session. Shown while one is RUNNING and not
+                   already closing down — exactly the launcher's rule (see controls.ts). -->
+              <button id="menu-kill" class="text-button is-hidden" type="button">Force close</button>
               <button id="menu-close" class="text-button" type="button">Close</button>
+            </div>
+
+            <!-- confirm: Yes/No for the force close. Default focus is the BOTTOM button, which is No —
+                 the safe answer, as in the launcher. -->
+            <div class="actions-group" data-group="confirm">
+              <button id="confirm-yes" class="text-button" type="button">Yes</button>
+              <button id="confirm-no" class="text-button" type="button">No</button>
             </div>
           </div>
         </div>

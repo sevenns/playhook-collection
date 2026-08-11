@@ -20,6 +20,7 @@ Source: **playhook 0.7.0**, commit `4461c60e75e18d98d77e80e70b9394e0bd0731a5`.
 | `src/controls.ts` | `src/renderer/controls.ts` | rewritten by hand against it (1000-odd lines → ~570), including the routing of the six nav primitives across strip / bar / popup stack |
 | `src/audio.ts` | `src/renderer/audio.ts` | SFX written fresh; the music crossfade engine ported 1:1 minus the ambience and browse source layers, plus an autoplay unlock the launcher does not need |
 | `src/stats.ts` | `src/renderer/app.ts` (`buildInfoPanel`) + `src/renderer/format.ts` | the panel's SHAPE and its formatters; the numbers themselves are invented (see below) |
+| `src/session.ts` | `src/main/` game controller + `src/renderer/state-view.ts` | only the SHAPE: the phase names, the status strings and the busy-visual mapping. Nothing is launched — see below |
 | `src/main.ts` | `src/renderer/app.ts` | only the wiring tail survives; every `window.api` subscription is replaced by one fetch of the collection feed |
 | `src/preload.ts` | — | new; the launcher's heroes are data URLs and never need preloading |
 | `src/router.ts` | — | new; the launcher has no routes |
@@ -52,9 +53,21 @@ and why a public web page cannot.
   figures are derived from the entry's slug (`src/stats.ts`), so a card always shows the same numbers
   rather than re-rolling under the reader, and the date is an offset back from today so the demo does not
   age. They are there to show what the launcher's panel looks like — nobody's playtime is being reported.
-- **Play does nothing.** It is in the bar for the resemblance; there is no main process to launch
-  anything. It plays the `play` sound and stops there. In the carousel it does have a second job, the
-  same one as in the launcher: it is the selected card's invisible geometric stand-in for the morph.
+- **Play launches nothing — it starts a PRETEND session** (`src/session.ts`). There is no main process
+  here, so the button walks the launcher's own phases on a timer instead of on real work:
+  `Launching...` → `Running...` → (Force close) → `Force closing...` → `Saving progress...` → ready. The
+  status strings, the phase names and the busy visuals are the launcher's; the durations are constants.
+  A session survives moving around the site, as the launcher's survives flipping through the strip, but
+  not a reload — there is nothing here to outlive the page. What the launcher does that this cannot: its
+  Play during `running` returns you to the game, so here that press is a no-op.
+  In the carousel Play has a second job, the same one as in the launcher: it is the selected card's
+  invisible geometric stand-in for the morph.
+- **A finished session is booked against the entry**, the way StatsService books a real one: +1 launch,
+  + the seconds it ran, and Last played becomes now. On top of the invented baseline, in memory only.
+- **The confirm view is the only one of the launcher's other three that is ported.** Force close asks
+  first — same question, same wording, same safe default (No, the bottom button). The launcher's error
+  and power views have nothing to describe here, and its confirm also carries an install-path note that
+  a site which installs nothing does not need.
 - **The carousel lives OVER the landing page**, switched on by the Collection menu item (`#/collection`).
   In the launcher it is the top-level screen with the bar screen below it; here the landing page is the
   top level, so `data-screen` gains a third value that carries no attribute at all. It also means B on
@@ -65,9 +78,10 @@ and why a public web page cannot.
 - **The bar keeps a vertical gradient below 900px/600px.** The launcher's radial "pool" is measured
   against a 400-tall bar; in the mobile flow layout the box is only as tall as its copy, so most of the
   fill would land outside it and leave the text on bare hero. The launcher has no such layout.
-- **The card dot is ported in its "no dot" state.** `.card-dot` and its rules are here so a re-port shows
-  no diff, but `.shows-dot` / `.is-busy` mean "on the inserted card" and "installing", and a showcase has
-  neither.
+- **The card dot carries only its second meaning.** In the launcher it marks a game that is on the
+  inserted card, and pulses while that game is busy. There is no card here, so it marks the entry a
+  session is running for — which is the launcher's other use for it: how "that one is still running"
+  stays visible while you browse something else.
 - **`artRev` is not ported.** The launcher re-decodes a cover when Configure rewrites it; here covers are
   URLs and the browser handles staleness.
 - **The NAME is the upper bar line, not the lower one.** The state machine is the launcher's

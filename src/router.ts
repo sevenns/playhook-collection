@@ -32,6 +32,9 @@ export interface Router {
    * tab at the bare screen name (loading / an error is not a page title).
    */
   setGameCopy(name: string, documentTitle: string | null): void;
+  /** The entry screen's second line while a session is in flight ("Running...", "Saving progress...").
+   *  Empty the rest of the time — an entry that is not doing anything has nothing to report. */
+  setGameStatus(status: string): void;
   /**
    * The landing page's two lines while the carousel is browsing: the selected entry's name in place of
    * "Playhook", with the same caption under it that its own screen carries. `null` restores the landing
@@ -93,6 +96,7 @@ export function createRouter(): Router {
   let wantsCollection = initial.wantsCollection;
   // The entry screen's name line, owned by whoever resolves the slug against the feed.
   let gameName = '';
+  let gameStatus = '';
   let gameDocumentTitle: string | null = null;
   // The name the carousel is browsing over the landing page; null = the landing page's own copy.
   let browseName: string | null = null;
@@ -124,7 +128,7 @@ export function createRouter(): Router {
       return;
     }
     titleEl.textContent = gameName;
-    statusEl.textContent = '';
+    statusEl.textContent = gameStatus;
     applyStatusFlag();
     document.title =
       gameDocumentTitle === null
@@ -144,6 +148,12 @@ export function createRouter(): Router {
     setGameCopy(name: string, documentTitle: string | null): void {
       gameName = name;
       gameDocumentTitle = documentTitle;
+      if (route.kind === 'game') render();
+    },
+
+    setGameStatus(status: string): void {
+      if (status === gameStatus) return;
+      gameStatus = status;
       if (route.kind === 'game') render();
     },
 
@@ -192,6 +202,8 @@ export function createRouter(): Router {
         gameName = '';
         gameDocumentTitle = null;
         browseName = null;
+        // NOT gameStatus: a session belongs to a game, not to the screen you happen to be on, and main
+        // re-applies it for the new route (see applySession there).
         render();
         onChange(route, wantsCollection);
       });

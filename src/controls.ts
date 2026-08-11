@@ -21,6 +21,7 @@ import { type AudioController } from './audio.js';
 import { type Router } from './router.js';
 import { type CollectionEntry, type ListState } from './collection.js';
 import { type Carousel } from './carousel.js';
+import { type SessionController } from './session.js';
 import { formatDate, formatPlaytime, statsFor } from './stats.js';
 import { req, reqQuery } from './dom.js';
 
@@ -36,7 +37,10 @@ const REPO_URL = 'https://github.com/sevenns/playhook';
 const ENTRY_URL_PREFIX = 'https://github.com/sevenns/playhook-collection/tree/main/';
 
 /** Which view the popup is showing; 'none' means it is closed. */
-type PopupView = 'none' | 'details';
+type PopupView = 'none' | 'details' | 'confirm';
+
+/** The launcher's own wording, kept verbatim — it is the one place the site can lose something. */
+const KILL_QUESTION = 'Force close the game? Unsaved progress may be lost.';
 
 /**
  * One entry in the popup's vertical focus stack. Two roles because they diverged for the search box the
@@ -55,6 +59,8 @@ export interface ControlsDeps {
   readonly router: Router;
   /** The carousel — the THIRD focus surface, above the bar and the popup stack (see navLeft…). */
   readonly carousel: Carousel;
+  /** The pretend game session Play starts and Force close ends. */
+  readonly session: SessionController;
 }
 
 export interface Controls {
@@ -64,29 +70,45 @@ export interface Controls {
   onRoute(): void;
   /** The carousel switched level: the bar highlight only exists off the strip. */
   onScreen(): void;
+  /** The session changed phase: the Force close item and the statistics both follow it. */
+  onSession(): void;
   /** Starts the gamepad polling loop. */
   start(): void;
 }
 
 export function createControls(deps: ControlsDeps): Controls {
-  const { audio, router, carousel } = deps;
+  const { audio, router, carousel, session } = deps;
 
   const playButton = req<HTMLButtonElement>('play-button');
   const moreButton = req<HTMLButtonElement>('more-button');
   const popup = req('popup');
   const popupVeil = reqQuery<HTMLElement>('#popup .popup-veil');
   const infoPanel = req('info-panel');
+  const confirmMessage = req('confirm-message');
   const menuGithub = req<HTMLAnchorElement>('menu-github');
   const menuLibrary = req<HTMLButtonElement>('menu-library');
+  const menuKill = req<HTMLButtonElement>('menu-kill');
   const menuClose = req<HTMLButtonElement>('menu-close');
+  const confirmYes = req<HTMLButtonElement>('confirm-yes');
+  const confirmNo = req<HTMLButtonElement>('confirm-no');
 
   const ALL_BAR_BUTTONS: readonly HTMLButtonElement[] = [playButton, moreButton];
 
   const githubItem: StackItem = { kind: 'button', visual: menuGithub, focusTarget: menuGithub };
   const libraryItem: StackItem = { kind: 'button', visual: menuLibrary, focusTarget: menuLibrary };
+  const killItem: StackItem = { kind: 'button', visual: menuKill, focusTarget: menuKill };
   const closeItem: StackItem = { kind: 'button', visual: menuClose, focusTarget: menuClose };
+  const yesItem: StackItem = { kind: 'button', visual: confirmYes, focusTarget: confirmYes };
+  const noItem: StackItem = { kind: 'button', visual: confirmNo, focusTarget: confirmNo };
 
-  const ALL_STATIC_ITEMS: readonly StackItem[] = [githubItem, libraryItem, closeItem];
+  const ALL_STATIC_ITEMS: readonly StackItem[] = [
+    githubItem,
+    libraryItem,
+    killItem,
+    closeItem,
+    yesItem,
+    noItem,
+  ];
 
   let popupView: PopupView = 'none';
   let stackIndex = 0;
@@ -144,13 +166,28 @@ export function createControls(deps: ControlsDeps): Controls {
     return carousel.exists();
   }
 
+  /**
+   * Force close is offered while a session is RUNNING and a close is not already in flight — during
+   * `killing` / `syncing-out` the status already says so and the item would be a no-op. The launcher's
+   * rule, verbatim.
+   */
+  function killVisible(): boolean {
+    return session.current()?.phase === 'running';
+  }
+
   function applyMenuLibrary(): void {
     menuLibrary.classList.toggle('is-hidden', !libraryVisible());
+    menuKill.classList.toggle('is-hidden', !killVisible());
   }
 
   function stackItems(): readonly StackItem[] {
+    if (popupView === 'confirm') return [yesItem, noItem];
     if (popupView !== 'details') return [];
-    return libraryVisible() ? [githubItem, libraryItem, closeItem] : [githubItem, closeItem];
+    const items = [githubItem];
+    if (libraryVisible()) items.push(libraryItem);
+    if (killVisible()) items.push(killItem);
+    items.push(closeItem);
+    return items;
   }
 
   function applyStackFocus(moveDomFocus = false): void {
@@ -166,7 +203,8 @@ export function createControls(deps: ControlsDeps): Controls {
   }
 
   function focusStackBottom(): void {
-    // The view defaults to the bottom item (Close), which is what the mockups draw as filled.
+    // Both views default to the bottom item — Close in Details, and No in confirm, where the bottom slot
+    // is the safe answer. The mockups draw that button filled.
     stackIndex = Math.max(0, stackItems().length - 1);
     applyStackFocus(true);
   }
@@ -236,28 +274,45 @@ export function createControls(deps: ControlsDeps): Controls {
       infoPanel.replaceChildren();
       return;
     }
-    const stats = statsFor(entry.slug);
+    // The invented baseline plus whatever sessions were actually played on this page — the launcher's
+    // StatsService books a session the same way, once it has ended.
+    const base = statsFor(entry.slug);
+    const played = session.recordedFor(entry.slug);
     infoPanel.replaceChildren(
-      infoItem('Last played', formatDate(stats.lastPlayedAt)),
-      infoItem('Playtime', formatPlaytime(stats.totalPlaySeconds)),
-      infoItem('Launches', String(stats.launchCount)),
+      infoItem('Last played', formatDate(played.lastEndedAt ?? base.lastPlayedAt)),
+      infoItem('Playtime', formatPlaytime(base.totalPlaySeconds + played.seconds)),
+      infoItem('Launches', String(base.launchCount + played.launches)),
     );
   }
 
   // ── Popup ────────────────────────────────────────────────────────────────────
 
+  /** Switching views keeps .is-open, so the shared veil never cross-fades — only the content changes. */
+  function setView(view: 'details' | 'confirm'): void {
+    popupView = view;
+    popup.dataset['view'] = view;
+  }
+
   function openDetails(): void {
-    popupView = 'details';
     popup.classList.add('is-open');
     popup.setAttribute('aria-hidden', 'false');
     // The closed popup only fades out via opacity, so without dropping `inert` its controls would be
     // unreachable now — and without setting it again on close they would stay in the tab order.
     popup.removeAttribute('inert');
+    setView('details');
     applyGithubHref();
     applyInfoPanel();
     applyMenuLibrary();
     focusStackBottom();
     applyFocus(); // the bar highlight clears while the popup is open
+  }
+
+  /** The force-close question. One step deeper than Details, and B / No / the veil return there. */
+  function openConfirm(): void {
+    confirmMessage.textContent = KILL_QUESTION;
+    setView('confirm');
+    focusStackBottom(); // default focus: No, the safe answer
+    applyFocus();
   }
 
   function closePopup(): void {
@@ -282,12 +337,20 @@ export function createControls(deps: ControlsDeps): Controls {
     else router.showCollection();
   }
 
-  // Back is a stack, not a single step: the menu closes, then the carousel steps back to the bare landing
-  // page, and an entry screen steps out to whatever it was opened from. In the launcher the carousel IS
+  // Back is a stack, not a single step: the confirm question steps back to the menu, the menu closes,
+  // then the carousel steps back to the bare landing page, and an entry screen steps out to whatever it
+  // was opened from. In the launcher the carousel IS
   // the top level and B does nothing there; here it sits over home, so leaving it is a real step — and
   // without it a gamepad or keyboard user would be stuck on the strip (the bar buttons are unreachable
   // from it, exactly as in the launcher).
   function back(): void {
+    if (popupView === 'confirm') {
+      audio.play('back');
+      setView('details');
+      applyMenuLibrary();
+      focusStackBottom();
+      return;
+    }
     if (popupView === 'details') {
       audio.play('back');
       closePopup();
@@ -372,10 +435,17 @@ export function createControls(deps: ControlsDeps): Controls {
     menuGithub.href = REPO_URL;
   }
 
+  /**
+   * Play starts a pretend session for the entry on screen. Refused while one is already in flight: the
+   * launcher runs one game at a time, and during `running` its own Play means "return to the game",
+   * which a web page has nothing to return to.
+   */
   function triggerPlay(): void {
-    // Sound and nothing else. There is no window.api here and no game to launch — the button is in the
-    // bar so the page looks like the launcher it advertises. This IS the whole handler.
+    const route = router.current();
+    if (route.kind !== 'game') return;
+    if (session.current() !== null) return;
     audio.play('play');
+    session.start(route.slug);
   }
 
   function triggerMore(): void {
@@ -396,7 +466,19 @@ export function createControls(deps: ControlsDeps): Controls {
       openCarousel();
       return;
     }
-    back(); // Close
+    if (item === killItem) {
+      // Destructive in the launcher (unsaved progress), so it asks first — same here, same wording.
+      audio.play('button');
+      openConfirm();
+      return;
+    }
+    if (item === yesItem) {
+      audio.play('button');
+      closePopup();
+      session.requestKill();
+      return;
+    }
+    back(); // Close, or No
   }
 
   // ── Cursor & the idle timeout ────────────────────────────────────────────────
@@ -643,6 +725,19 @@ export function createControls(deps: ControlsDeps): Controls {
     onScreen(): void {
       applyMenuLibrary();
       applyFocus();
+    },
+
+    onSession(): void {
+      // The question outlives its answer if the session ends some other way — step back rather than
+      // leave a Yes that would now do nothing.
+      if (popupView === 'confirm' && !killVisible()) {
+        setView('details');
+        focusStackBottom();
+      }
+      const previous = stackItems()[stackIndex];
+      applyMenuLibrary();
+      applyInfoPanel();
+      restoreFocus(previous, false);
     },
 
     start: (): void => gamepad.start(),
