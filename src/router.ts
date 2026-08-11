@@ -3,11 +3,12 @@
 // would 404 on a reload; and because staying on one document keeps the hero cross-fade and the popup
 // alive across a route change instead of reloading and recomputing the palette.
 //
-// Collection is NOT a screen. The mockups show it as a popup VIEW that opens over whatever is behind it
-// (the home screen or a game), so `#/collection` is a deep link meaning "home with the game list open",
-// not a third route. Its hash is written with replaceState, never location.hash: the list opens and
-// closes with every menu visit, and a history entry per visit would turn the browser's Back button into
-// a menu toggle.
+// Collection is NOT a route. It is a LAYER over the landing page — the carousel of covers, which in the
+// launcher is a screen level rather than a place — so `#/collection` is a deep link meaning "home with
+// the carousel up", not a third member of the union. Its hash is written with replaceState wherever it
+// is toggled in place (opening and closing it repeatedly would otherwise turn the browser's Back button
+// into a menu toggle); only the step BACK to it from an entry, where the two really are different
+// places, pushes a history entry of its own.
 
 import { req } from './dom.js';
 import { isValidSlug } from './collection.js';
@@ -30,11 +31,20 @@ export interface Router {
    * leave the tab at the bare screen name (loading / an error is not a page title).
    */
   setGameCopy(status: string, documentTitle: string | null): void;
-  /** Keeps the address bar honest while the game list is open on the home screen (replaceState only). */
+  /**
+   * The landing page's two lines while the carousel is up: the selected entry's name in place of
+   * "Playhook", and whatever belongs under it. Either `null` restores that line's default — which is what
+   * closing the carousel does.
+   */
+  setHomeCopy(title: string | null, status: string | null): void;
+  /** Opens or closes the carousel over the landing page (replaceState — it is a toggle, not a place). */
   setCollectionVisible(visible: boolean): void;
-  /** Sends the user to the catalogue with the list open. Where an unknown slug lands — and it REPLACES
+  /** Sends the user to the catalogue with the carousel up. Where an unknown slug lands — and it REPLACES
    *  the current entry, because a dead link has no business sitting in the back stack. */
   showCollection(): void;
+  /** Back to the carousel FROM an entry (the Library menu item). A pushed hash, not a replaced one: the
+   *  entry you are leaving is a real place, and the browser's Back button should return to it. */
+  goCollection(): void;
   /** Leaves the game screen for home. Prefers the browser's own history when this session has already
    *  navigated inside the site, so B / Esc and the Back button end up in the same place; a cold deep
    *  link has nothing to go back to, so it writes the hash instead. */
@@ -83,6 +93,11 @@ export function createRouter(): Router {
   // The game screen's status line, owned by whoever resolves the slug against the feed.
   let gameStatus = '';
   let gameDocumentTitle: string | null = null;
+  // The landing page's two lines while the carousel is browsing an entry; null = the default copy.
+  let homeTitle: string | null = null;
+  let homeStatus: string | null = null;
+  // Set once start() has run, so the toggles below can re-render through the same path a hashchange takes.
+  let notify: ((route: Route, collection: boolean) => void) | null = null;
   // Whether this session has pushed a history entry of its own. Without one, history.back() would leave
   // the site entirely — which is not what "step out of this game" means.
   let navigated = false;
@@ -90,8 +105,8 @@ export function createRouter(): Router {
   function render(): void {
     app.dataset['route'] = route.kind;
     if (route.kind === 'home') {
-      titleEl.textContent = HOME_TITLE;
-      statusEl.textContent = HOME_STATUS;
+      titleEl.textContent = homeTitle ?? HOME_TITLE;
+      statusEl.textContent = homeStatus ?? HOME_STATUS;
       document.title = HOME_DOCUMENT_TITLE;
       return;
     }
@@ -116,17 +131,31 @@ export function createRouter(): Router {
       if (route.kind === 'game') render();
     },
 
+    setHomeCopy(title: string | null, status: string | null): void {
+      homeTitle = title;
+      homeStatus = status;
+      if (route.kind === 'home') render();
+    },
+
     setCollectionVisible(visible: boolean): void {
-      // Only home has a hash to swap: on a game screen the list opens over `#/collection/<slug>`, which
-      // already names where you are.
+      // Only home carries this bit: an entry screen is a place of its own, and `#/collection/<slug>`
+      // already names it.
       if (route.kind !== 'home') return;
       if (visible === wantsCollection) return;
       wantsCollection = visible;
       history.replaceState(null, '', visible ? '#/collection' : '#/');
+      // replaceState fires no hashchange, so the listener that normally repaints never runs — tell the
+      // app ourselves, or the carousel would stay up with the address bar saying otherwise.
+      notify?.(route, wantsCollection);
     },
 
     showCollection(): void {
       window.location.replace('#/collection');
+    },
+
+    goCollection(): void {
+      navigated = true;
+      window.location.hash = '#/collection';
     },
 
     goHome(): void {
@@ -139,6 +168,7 @@ export function createRouter(): Router {
     },
 
     start(onChange: (next: Route, collection: boolean) => void): void {
+      notify = onChange;
       window.addEventListener('hashchange', () => {
         const next = parse(window.location.hash);
         if (sameRoute(next.route, route) && next.wantsCollection === wantsCollection) return;
@@ -146,6 +176,8 @@ export function createRouter(): Router {
         wantsCollection = next.wantsCollection;
         gameStatus = '';
         gameDocumentTitle = null;
+        homeTitle = null;
+        homeStatus = null;
         render();
         onChange(route, wantsCollection);
       });

@@ -9,12 +9,7 @@
       "assets/wp2662643-chaotic-wallpaper-hd.jpg",
       "assets/wp4118296-lineage-2-wallpapers.jpg"
     ],
-    "sounds": {
-      "play": "assets/button.wav",
-      "navigate": "assets/move.wav",
-      "button": "assets/button.wav",
-      "back": "assets/back.wav"
-    },
+    "grid": "assets/grid.webp",
     "music": "assets/theme.mp3"
   }
 }

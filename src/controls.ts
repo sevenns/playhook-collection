@@ -1,25 +1,26 @@
-// Interaction layer: the menu popup and its two views, the two focus groups (the bottom bar + the
-// popup's vertical stack) and everything that drives them — clicks, hover, gamepad, keyboard, and the
-// idle timeout.
+// Interaction layer: the menu popup, the three focus surfaces (the carousel strip, the bottom bar and
+// the popup's vertical stack) and everything that drives them — clicks, hover, wheel, gamepad, keyboard,
+// and the idle timeout.
 //
-// Written by hand against playhook @ c348f4246752286b594c8a8eddd2253ea88b0f12 : src/renderer/controls.ts
-// rather than trimmed down from it: of its 994 lines only the parts with something left to do here
+// Written by hand against playhook @ 4461c60e75e18d98d77e80e70b9394e0bd0731a5 : src/renderer/controls.ts
+// rather than trimmed down from it: of its 1000-odd lines only the parts with something left to do here
 // survive, and a "reduced port" would have dragged along abstractions with nothing to abstract (the
 // ControlsDeps state/translator seam, the confirm/error/power views, the multi-game card model). The
 // behaviour it does keep — bottom-anchored default focus, cyclic vertical navigation and CLAMPED
-// horizontal navigation, the press flash, back-steps-out, the 5s idle dormancy — is deliberately
-// identical to the launcher's. The game list itself lives in game-list.ts.
+// horizontal navigation, the press flash, back-steps-out, the 5s idle dormancy, and the routing of the
+// six nav primitives across the three surfaces — is deliberately identical to the launcher's. The strip
+// itself lives in carousel.ts.
 //
 // One deliberate departure remains, because this runs in a browser rather than a kiosk: DOM focus and
 // the custom highlight are kept in sync (both directions), so Tab works like the arrow keys do and
 // :focus-visible lands on the same control the highlight is on. The launcher suppresses Tab entirely —
 // it has no keyboard user to serve. The idle timeout therefore dims ONLY the custom highlight: taking
 // :focus-visible away too would leave a keyboard user with no marker of where they were mid-read.
-import { createGamepadController } from './gamepad.js';
+import { NAV_REPEAT_MS, createGamepadController } from './gamepad.js';
 import { type AudioController } from './audio.js';
-import { type Router, type Route } from './router.js';
-import { type CollectionEntry } from './collection.js';
-import { createGameList, type ListState, type StackItem } from './game-list.js';
+import { type Router } from './router.js';
+import { type CollectionEntry, type ListState } from './collection.js';
+import { type Carousel } from './carousel.js';
 import { req, reqQuery } from './dom.js';
 
 // Gamepad A doesn't trigger :active, so flash a press class to play the scale-down animation.
@@ -34,60 +35,66 @@ const REPO_URL = 'https://github.com/sevenns/playhook';
 const ENTRY_URL_PREFIX = 'https://github.com/sevenns/playhook-collection/tree/main/';
 
 /** Which view the popup is showing; 'none' means it is closed. */
-type PopupView = 'none' | 'details' | 'select-game';
+type PopupView = 'none' | 'details';
+
+/**
+ * One entry in the popup's vertical focus stack. Two roles because they diverged for the search box the
+ * launcher still has; kept as a pair so a future item with the same split needs no reshaping here.
+ */
+interface StackItem {
+  readonly kind: 'button';
+  /** Carries `.is-focused`. */
+  readonly visual: HTMLElement;
+  /** Where DOM focus goes. */
+  readonly focusTarget: HTMLElement;
+}
 
 export interface ControlsDeps {
   readonly audio: AudioController;
   readonly router: Router;
+  /** The carousel — the THIRD focus surface, above the bar and the popup stack (see navLeft…). */
+  readonly carousel: Carousel;
 }
 
 export interface Controls {
-  /** New catalogue data (or a load state) for the list and the Github link. */
+  /** New catalogue data (or a load state) for the Github link and the Library item. */
   setCollection(state: ListState, entries: readonly CollectionEntry[]): void;
-  /** The route changed: relabel Github, re-evaluate the bar group, honour the `#/collection` deep link. */
-  onRoute(route: Route, wantsCollection: boolean): void;
+  /** The route changed: relabel Github, re-evaluate the bar group and the menu. */
+  onRoute(): void;
+  /** The carousel switched level: the bar highlight only exists off the strip. */
+  onScreen(): void;
   /** Starts the gamepad polling loop. */
   start(): void;
 }
 
 export function createControls(deps: ControlsDeps): Controls {
-  const { audio, router } = deps;
+  const { audio, router, carousel } = deps;
 
   const playButton = req<HTMLButtonElement>('play-button');
   const moreButton = req<HTMLButtonElement>('more-button');
   const popup = req('popup');
   const popupVeil = reqQuery<HTMLElement>('#popup .popup-veil');
   const menuGithub = req<HTMLAnchorElement>('menu-github');
+  const menuLibrary = req<HTMLButtonElement>('menu-library');
   const menuCollection = req<HTMLButtonElement>('menu-collection');
   const menuClose = req<HTMLButtonElement>('menu-close');
-  const menuSelectClose = req<HTMLButtonElement>('menu-select-close');
-  const searchBox = req('menu-search');
-  const searchField = req<HTMLInputElement>('search-field');
-  const searchMirror = reqQuery<HTMLElement>('#menu-search .input-mirror');
 
   const ALL_BAR_BUTTONS: readonly HTMLButtonElement[] = [playButton, moreButton];
 
   const githubItem: StackItem = { kind: 'button', visual: menuGithub, focusTarget: menuGithub };
+  const libraryItem: StackItem = { kind: 'button', visual: menuLibrary, focusTarget: menuLibrary };
   const collectionItem: StackItem = {
     kind: 'button',
     visual: menuCollection,
     focusTarget: menuCollection,
   };
   const closeItem: StackItem = { kind: 'button', visual: menuClose, focusTarget: menuClose };
-  const selectCloseItem: StackItem = {
-    kind: 'button',
-    visual: menuSelectClose,
-    focusTarget: menuSelectClose,
-  };
-  // The one item whose two roles differ: the highlight belongs on the box, DOM focus on the field.
-  const searchItem: StackItem = { kind: 'input', visual: searchBox, focusTarget: searchField };
 
   const ALL_STATIC_ITEMS: readonly StackItem[] = [
     githubItem,
+    libraryItem,
     collectionItem,
     closeItem,
-    selectCloseItem,
-    searchItem,
   ];
 
   let popupView: PopupView = 'none';
@@ -101,13 +108,6 @@ export function createControls(deps: ControlsDeps): Controls {
   let cursorHidden = false;
   let idleTimer = 0;
   let collectionEntries: readonly CollectionEntry[] = [];
-
-  const gameList = createGameList({
-    onSelect: (slug) => selectGame(slug),
-    onAdoptFocus: (visual) => adoptFocus(visual),
-    isVisible: () => popupView === 'select-game',
-    focusedVisual: () => stackItems()[stackIndex]?.visual ?? null,
-  });
 
   // ── Focus-ring modality ───────────────────────────────────────────────────────
   //
@@ -144,10 +144,20 @@ export function createControls(deps: ControlsDeps): Controls {
 
   // ── The popup's focus stack ──────────────────────────────────────────────────
 
+  /** Library is the mouse's way back to the strip; it only exists where B would also work. */
+  function libraryVisible(): boolean {
+    return router.current().kind === 'game' && carousel.exists();
+  }
+
+  function applyMenuLibrary(): void {
+    menuLibrary.classList.toggle('is-hidden', !libraryVisible());
+  }
+
   function stackItems(): readonly StackItem[] {
-    if (popupView === 'details') return [githubItem, collectionItem, closeItem];
-    if (popupView === 'select-game') return [...gameList.items(), searchItem, selectCloseItem];
-    return [];
+    if (popupView !== 'details') return [];
+    return libraryVisible()
+      ? [githubItem, libraryItem, collectionItem, closeItem]
+      : [githubItem, collectionItem, closeItem];
   }
 
   function applyStackFocus(moveDomFocus = false): void {
@@ -156,22 +166,14 @@ export function createControls(deps: ControlsDeps): Controls {
     const focused = popupView === 'none' ? undefined : items[stackIndex];
     for (const item of ALL_STATIC_ITEMS)
       item.visual.classList.toggle('is-focused', item === focused);
-    for (const item of gameList.items())
-      item.visual.classList.toggle('is-focused', item === focused);
     if (focused !== undefined) {
       focused.visual.scrollIntoView({ block: 'nearest' });
       if (moveDomFocus) focusQuietly(focused.focusTarget);
     }
-    gameList.updateMarquee();
-    // Reflect the new focus on the scrollbar (it hides when focus leaves the list). NOT an activity
-    // ping: applyStackFocus also runs on ordinary rebuilds, which must not keep the thumb awake.
-    gameList.updateScrollbar();
   }
 
   function focusStackBottom(): void {
-    // Both views default to the bottom item (Close), which is what the mockups draw as filled. The
-    // launcher tops out its own select-game view, but that view has neither an input nor a second
-    // button below the list — its rule does not transfer, and the mockup disagrees with it.
+    // The view defaults to the bottom item (Close), which is what the mockups draw as filled.
     stackIndex = Math.max(0, stackItems().length - 1);
     applyStackFocus(true);
   }
@@ -199,10 +201,10 @@ export function createControls(deps: ControlsDeps): Controls {
   }
 
   /**
-   * Rebuilding the list changes how many items sit above the search box — i.e. its INDEX. Restoring a
-   * remembered index instead of the remembered ELEMENT would slide the focus off the field onto a game
-   * button, and the second character of a query would never be typed. So: remember the item, find it
-   * again, and fall back to the nearest valid position only if it filtered itself away.
+   * The Library item comes and goes with the route, i.e. it changes how many items sit above the
+   * others — their INDEX. Restoring a remembered index instead of the remembered ELEMENT would slide the
+   * highlight onto a different button. So: remember the item, find it again, and fall back to the
+   * nearest valid position only if it left the stack.
    */
   function restoreFocus(previous: StackItem | undefined, moveDomFocus: boolean): void {
     const items = stackItems();
@@ -213,37 +215,17 @@ export function createControls(deps: ControlsDeps): Controls {
 
   // ── Popup ────────────────────────────────────────────────────────────────────
 
-  function showPopup(): void {
+  function openDetails(): void {
+    popupView = 'details';
     popup.classList.add('is-open');
     popup.setAttribute('aria-hidden', 'false');
     // The closed popup only fades out via opacity, so without dropping `inert` its controls would be
     // unreachable now — and without setting it again on close they would stay in the tab order.
     popup.removeAttribute('inert');
-  }
-
-  function setView(view: 'details' | 'select-game'): void {
-    popupView = view;
-    popup.dataset['view'] = view;
-  }
-
-  function openDetails(): void {
-    showPopup();
-    setView('details');
     applyGithubHref();
+    applyMenuLibrary();
     focusStackBottom();
     applyFocus(); // the bar highlight clears while the popup is open
-  }
-
-  function openGameList(): void {
-    showPopup();
-    resetSearch();
-    setView('select-game');
-    // Keep the address bar honest: this IS `#/collection`. replaceState, so opening and closing the
-    // menu doesn't fill history with entries and turn the browser's Back button into a toggle.
-    router.setCollectionVisible(true);
-    focusStackBottom();
-    applyFocus();
-    gameList.noteActivity();
   }
 
   function closePopup(): void {
@@ -252,25 +234,31 @@ export function createControls(deps: ControlsDeps): Controls {
     popup.classList.remove('is-open');
     popup.setAttribute('aria-hidden', 'true');
     popup.setAttribute('inert', '');
-    router.setCollectionVisible(false);
     applyStackFocus(); // clear the stack highlight
     applyFocus(); // restore the bar highlight
     focusQuietly(moreButton); // `inert` would otherwise strand focus on <body>
   }
 
-  // Back is a stack, not a single step: the game list falls back to the menu, the menu closes, and a
-  // closed popup on a game screen steps out to home (there is no Home item — no mockup draws one).
+  /** Collection: the carousel over the landing page. `#/collection` is a hash the router owns. */
+  function openCarousel(): void {
+    closePopup();
+    router.showCollection();
+  }
+
+  // Back is a stack, not a single step: the menu closes, then the carousel steps back to the bare landing
+  // page, and an entry screen steps out to whatever it was opened from. In the launcher the carousel IS
+  // the top level and B does nothing there; here it sits over home, so leaving it is a real step — and
+  // without it a gamepad or keyboard user would be stuck on the strip (the bar buttons are unreachable
+  // from it, exactly as in the launcher).
   function back(): void {
-    if (popupView === 'select-game') {
-      audio.play('back');
-      setView('details');
-      router.setCollectionVisible(false);
-      focusStackBottom();
-      return;
-    }
     if (popupView === 'details') {
       audio.play('back');
       closePopup();
+      return;
+    }
+    if (carousel.screen() === 'carousel') {
+      audio.play('back');
+      router.setCollectionVisible(false);
       return;
     }
     if (router.current().kind === 'game') {
@@ -282,13 +270,19 @@ export function createControls(deps: ControlsDeps): Controls {
   // ── Bar focus (horizontal) ───────────────────────────────────────────────────
 
   function barFocusables(): readonly HTMLButtonElement[] {
-    // Play only exists on a game screen — the home screen is the launcher's idle screen, and the
+    // Play only exists on an entry screen — the landing page is the launcher's idle screen, and the
     // launcher hides Play there.
     return router.current().kind === 'game' ? [playButton, moreButton] : [moreButton];
   }
 
+  /**
+   * The bar highlight is meaningful everywhere the popup is closed EXCEPT on the carousel: there the
+   * selection lives in the strip, and left/right belong to it. Unlike the launcher the More button stays
+   * VISIBLE on the strip — it is the site's only way into the menu, and a mouse user with it hidden would
+   * have none — it simply cannot hold the highlight.
+   */
   function focusActive(): boolean {
-    return popupView === 'none';
+    return popupView === 'none' && carousel.screen() !== 'carousel';
   }
 
   function applyFocus(): void {
@@ -326,40 +320,6 @@ export function createControls(deps: ControlsDeps): Controls {
     window.setTimeout(() => element.classList.remove('is-pressed'), PRESS_MS);
   }
 
-  // ── Search ───────────────────────────────────────────────────────────────────
-
-  /** Mirrors the value into the hidden twin and sizes the field to it (+1px for the caret itself). */
-  function syncSearchBox(): void {
-    const value = searchField.value;
-    searchBox.classList.toggle('is-filled', value !== '');
-    searchMirror.textContent = value;
-    searchField.style.width = `${searchMirror.offsetWidth + 1}px`;
-  }
-
-  function applySearch(): void {
-    const previous = stackItems()[stackIndex];
-    syncSearchBox();
-    gameList.setFilter(searchField.value);
-    // Never move DOM focus here: the user is mid-word, and stealing the caret would eat the next key.
-    restoreFocus(previous, false);
-    gameList.noteActivity();
-  }
-
-  function resetSearch(): void {
-    searchField.value = '';
-    syncSearchBox();
-    gameList.setFilter('');
-  }
-
-  /** Enter in the field: jump to the first result. Not in the mockups — but leaving Enter inert would
-   *  make ArrowUp the only way from a typed query to its result, which is odd for a keyboard user. */
-  function focusFirstResult(): void {
-    const index = stackItems().findIndex((item) => item.kind === 'game');
-    if (index === -1) return;
-    stackIndex = index;
-    applyStackFocus(true);
-  }
-
   // ── Actions ──────────────────────────────────────────────────────────────────
 
   function applyGithubHref(): void {
@@ -387,39 +347,26 @@ export function createControls(deps: ControlsDeps): Controls {
     openDetails();
   }
 
-  function selectGame(slug: string): void {
-    audio.play('button');
-    // Explicit, not a side effect of navigating: picking the game you are already on leaves the hash
-    // unchanged, so hashchange never fires and nothing else would close the popup.
-    closePopup();
-    router.go({ kind: 'game', slug });
-  }
-
   function triggerStackItem(item: StackItem): void {
-    if (item.kind === 'game') {
-      const slug = item.visual.dataset['slug'];
-      if (slug === undefined) return;
-      selectGame(slug);
-      return;
-    }
-    if (item === searchItem) {
-      // There is no on-screen keyboard and there will not be one: a gamepad browses, a keyboard types.
-      // A on the field just puts the caret in it.
-      focusQuietly(searchField);
-      return;
-    }
     if (item === githubItem) {
       // A real click on the anchor, so mouse, keyboard and gamepad all take the same path (and the
       // click listener below plays the sound exactly once).
       menuGithub.click();
       return;
     }
-    if (item === collectionItem) {
-      audio.play('button');
-      openGameList();
+    if (item === libraryItem) {
+      // Non-destructive, so no confirm: close the popup and hand control back to the strip.
+      audio.play('back');
+      closePopup();
+      router.goCollection();
       return;
     }
-    back(); // Close, in either view
+    if (item === collectionItem) {
+      audio.play('button');
+      openCarousel();
+      return;
+    }
+    back(); // Close
   }
 
   // ── Cursor & the idle timeout ────────────────────────────────────────────────
@@ -451,7 +398,6 @@ export function createControls(deps: ControlsDeps): Controls {
     setCursorHidden(true);
     setKeyboardMode(false);
     armIdleTimer();
-    gameList.noteActivity();
   }
 
   /** Real mouse movement: show the pointer, and bring the dormant highlight back with it (silently —
@@ -463,7 +409,6 @@ export function createControls(deps: ControlsDeps): Controls {
       focusRevealed = true;
       applyFocus();
     }
-    gameList.noteActivity();
   }
 
   // ── Wiring ───────────────────────────────────────────────────────────────────
@@ -497,7 +442,7 @@ export function createControls(deps: ControlsDeps): Controls {
   // navigation happen, so the scripted .click() above needs no second code path.
   menuGithub.addEventListener('click', () => audio.play('button'));
   for (const item of ALL_STATIC_ITEMS) {
-    if (item !== searchItem && item !== githubItem) {
+    if (item !== githubItem) {
       item.visual.addEventListener('click', () => {
         pressFlash(item.visual);
         triggerStackItem(item);
@@ -506,15 +451,6 @@ export function createControls(deps: ControlsDeps): Controls {
     item.visual.addEventListener('mouseenter', () => adoptFocus(item.visual));
     item.focusTarget.addEventListener('focus', () => adoptFocus(item.visual));
   }
-
-  // Clicking anywhere in the search box means "put the caret here", including the "Search" label — which
-  // is not the field, so the browser would not do it for us.
-  searchBox.addEventListener('mousedown', (event) => {
-    if (event.target === searchField) return;
-    event.preventDefault();
-    focusQuietly(searchField);
-  });
-  searchField.addEventListener('input', () => applySearch());
 
   // One window-level mouse handler, guarded against SYNTHETIC moves (Chromium fires mousemove with
   // unchanged coordinates when an element shifts under a still pointer) so they can't undo a gamepad
@@ -529,13 +465,17 @@ export function createControls(deps: ControlsDeps): Controls {
   });
 
   // The six navigation primitives, shared by the gamepad AND the keyboard so both drive the exact same
-  // highlight model and can never diverge. Left/right move the bar; up/down move the popup stack;
-  // activate fires the highlighted control; back walks the view stack out.
+  // model and can never diverge. Which SURFACE they drive is decided here, in one place: the popup stack
+  // when it is open, then the carousel strip, then the bar.
+  const onCarousel = (): boolean => popupView === 'none' && carousel.screen() === 'carousel';
+
   function navLeft(): void {
-    moveFocus(-1);
+    if (onCarousel()) carousel.move(-1);
+    else moveFocus(-1);
   }
   function navRight(): void {
-    moveFocus(1);
+    if (onCarousel()) carousel.move(1);
+    else moveFocus(1);
   }
   function navUp(): void {
     moveStackFocus(-1);
@@ -549,6 +489,10 @@ export function createControls(deps: ControlsDeps): Controls {
       if (item === undefined) return;
       pressFlash(item.visual);
       triggerStackItem(item);
+      return;
+    }
+    if (onCarousel()) {
+      carousel.activate();
       return;
     }
     // Nothing is selected while the highlight is dormant — the user must wake it first. A mouse CLICK
@@ -581,10 +525,28 @@ export function createControls(deps: ControlsDeps): Controls {
     onB: withActivity(navBack),
   });
 
+  // The wheel flips through the carousel. Throttled: one notch of a mouse wheel is one event, but a
+  // trackpad emits a stream of them, which would fly past a dozen cards per gesture.
+  const WHEEL_THROTTLE_MS = 120;
+  let lastWheelAt = 0;
+  window.addEventListener(
+    'wheel',
+    (event) => {
+      if (!onCarousel()) return;
+      noteMouseActivity();
+      const delta = event.deltaY !== 0 ? event.deltaY : event.deltaX;
+      if (delta === 0) return;
+      const now = performance.now();
+      if (now - lastWheelAt < WHEEL_THROTTLE_MS) return;
+      lastWheelAt = now;
+      carousel.move(delta > 0 ? 1 : -1);
+    },
+    { passive: true },
+  );
+
   // Keyboard navigation: WASD + arrows move, Space/Enter activate, Backspace/Esc step back — the same
-  // six primitives as the gamepad. Edge-only (event.repeat ignored) to match the gamepad's
-  // one-move-per-press feel. Unlike the launcher, Tab is NOT bound to "back": on a public page it has to
-  // keep doing what every keyboard user expects, and the focus sync above makes it agree with the
+  // six primitives as the gamepad. Unlike the launcher, Tab is NOT bound to "back": on a public page it
+  // has to keep doing what every keyboard user expects, and the focus sync above makes it agree with the
   // highlight.
   const KEY_NAV: Readonly<Record<string, () => void>> = {
     a: navLeft,
@@ -600,81 +562,55 @@ export function createControls(deps: ControlsDeps): Controls {
     backspace: navBack,
     escape: navBack,
   };
-
-  /**
-   * Keys while the caret is in the search field. The table above claims w/a/s/d, Space, Enter and
-   * Backspace and preventDefault()s all of them — so without this branch "Dark Souls" could not be typed
-   * and Backspace would never delete anything. Here only four keys stay navigation; everything else,
-   * including the arrows for caret movement, goes to the field untouched.
-   */
-  function handleTypingKey(event: KeyboardEvent): void {
-    const key = event.key.toLowerCase();
-    if (key === 'arrowup' || key === 'arrowdown') {
-      event.preventDefault();
-      if (event.repeat) return;
-      noteNavActivity();
-      moveStackFocus(key === 'arrowup' ? -1 : 1);
-      return;
-    }
-    if (key === 'escape') {
-      event.preventDefault();
-      if (event.repeat) return;
-      noteNavActivity();
-      // A typed query is what Escape clears first; only an already-empty field steps out.
-      if (searchField.value !== '') {
-        resetSearch();
-        applyStackFocus();
-        return;
-      }
-      back();
-      return;
-    }
-    if (key === 'enter') {
-      event.preventDefault();
-      if (event.repeat) return;
-      noteNavActivity();
-      focusFirstResult();
-      return;
-    }
-    // Typing is activity too — otherwise the highlight would doze off mid-query.
-    armIdleTimer();
-  }
+  // Left/right are the exception to the edge model: holding them flips through the carousel, matching the
+  // gamepad's hold-to-repeat. The OS auto-repeat supplies the events (its own initial delay is close
+  // enough to the pad's), but its rate is far too fast for a carousel, so it is throttled to the same
+  // NAV_REPEAT_MS cadence. Every other key stays one action per press.
+  const REPEATABLE_KEYS = new Set(['a', 'arrowleft', 'd', 'arrowright']);
+  let lastKeyRepeatAt = 0;
 
   window.addEventListener('keydown', (event) => {
-    if (event.target === searchField) {
-      handleTypingKey(event);
-      return;
-    }
-    const handler = KEY_NAV[event.key.toLowerCase()];
+    const key = event.key.toLowerCase();
+    const handler = KEY_NAV[key];
     if (handler === undefined) return;
     // Suppress the native default (arrow scroll, Space scroll, and the native click a focused button
     // would fire on Enter/Space — which would double-trigger alongside navActivate).
     event.preventDefault();
-    if (event.repeat) return; // one action per press, like the gamepad edge model
+    if (event.repeat) {
+      if (!REPEATABLE_KEYS.has(key)) return;
+      const now = performance.now();
+      if (now - lastKeyRepeatAt < NAV_REPEAT_MS) return;
+      lastKeyRepeatAt = now;
+    }
     noteNavActivity();
     handler();
   });
 
-  syncSearchBox();
+  applyMenuLibrary();
   applyFocus();
   armIdleTimer();
 
   return {
     setCollection(state: ListState, entries: readonly CollectionEntry[]): void {
-      collectionEntries = entries;
+      collectionEntries = state === 'ready' ? entries : [];
       const previous = stackItems()[stackIndex];
-      gameList.setData(state, entries);
+      applyMenuLibrary();
       restoreFocus(previous, false);
       applyGithubHref();
     },
 
-    onRoute(_route: Route, wantsCollection: boolean): void {
+    onRoute(): void {
       // More is the one button on every screen, so keep the bar focus there across a route change
       // rather than letting a clamped index land on whichever button now occupies that slot.
       focusIndex = barFocusables().indexOf(moreButton);
       applyGithubHref();
+      applyMenuLibrary();
       applyFocus();
-      if (wantsCollection && popupView !== 'select-game') openGameList();
+    },
+
+    onScreen(): void {
+      applyMenuLibrary();
+      applyFocus();
     },
 
     start: (): void => gamepad.start(),

@@ -1,19 +1,21 @@
 // UI sound effects + the looping background music of whichever collection entry is on screen.
 //
 // The SFX half was written fresh for this site; the music half is a port of playhook's audio.ts, minus
-// its source layer. The launcher juggles TWO music sources — the card's own track and an app-wide
-// ambience, with "the game's music wins" resolved through applyEffective() — and none of that has a
+// its source layer. The launcher juggles THREE music sources — the browsed game's track, the inserted
+// card's own and an app-wide ambience, resolved through applyEffective() — and none of that has a
 // counterpart here: the site has exactly one source, the entry's `backgroundMusic`. What IS ported 1:1
 // is the crossfade engine: at most two live <audio> elements, a volume ramp on requestAnimationFrame,
-// and the pause guard. That is not fidelity for its own sake — switching straight from one game to
-// another out of the open menu is a normal move (mockup 5), and a hard cut there is audible.
+// and the pause guard. That is not fidelity for its own sake — flipping through the carousel switches
+// tracks with every card, and a hard cut there is audible.
 //
 // Slot → file is NOT 1:1, and the mismatch is silent if you get it wrong (an unknown slot just never
 // plays): `navigate` is served by move.ogg. That quirk comes from playhook's asset-reader.ts, where the
 // sound-set folders predate the slot vocabulary.
 //
-// The default set is `winhanced`, playhook's own out-of-the-box choice (app-settings.ts) — the showcase
-// should sound like the product does. An entry may override any slot from its own assets/.
+// The set is `winhanced`, playhook's own out-of-the-box choice (app-settings.ts) — the showcase should
+// sound like the product does. It is ONE set for the whole page and an entry cannot override it: per-card
+// UI sounds left the card format in 0.7.0, so the launcher now plays the set chosen in its Settings and
+// nothing else. Only the music still travels with an entry.
 
 /** The UI sound slots. `play` exists here too now: the bar has a Play button (see controls.ts). */
 export type SfxName = 'navigate' | 'button' | 'back' | 'play';
@@ -33,18 +35,12 @@ const FADE_MS = 800;
 const FADE_EPSILON = 0.001;
 const MUSIC_VOLUME = 0.5;
 
-/** An entry's audio: per-slot sound overrides and its background track. */
-export interface GameAudio {
-  readonly sounds: Partial<Record<SfxName, string>>;
-  readonly music: string | null;
-}
-
 export interface AudioController {
   /** Plays a one-shot UI sound. Best-effort: a browser that blocks audio before the first user gesture
    *  simply drops it. */
   play(name: SfxName): void;
-  /** Switches to an entry's sounds and music; null returns to the site's default set and fades out. */
-  setGameAssets(assets: GameAudio | null): void;
+  /** Switches to an entry's background track; null fades out to silence. */
+  setGameMusic(url: string | null): void;
   /** Starts/stops the background music to match the desired playing state (the visibility gate). */
   setMusicPlaying(shouldPlay: boolean): void;
 }
@@ -57,17 +53,10 @@ interface Player {
 
 export function createAudioController(): AudioController {
   const sfx = new Map<SfxName, HTMLAudioElement>();
-  let gameSounds: Partial<Record<SfxName, string>> = {};
 
-  // Per-slot override with a fallback to the site's set. Written as an explicit lookup rather than an
-  // index chain because `noUncheckedIndexedAccess` types the Partial's index as `string | undefined` —
-  // SFX_FILES is a full Record, so it is not affected.
-  const resolveSfx = (slot: SfxName): string => gameSounds[slot] ?? SFX_FILES[slot];
-
-  function rebuildSfx(): void {
-    sfx.clear();
+  function loadSfx(): void {
     for (const name of SFX_NAMES) {
-      const el = new Audio(resolveSfx(name));
+      const el = new Audio(SFX_FILES[name]);
       el.preload = 'auto';
       sfx.set(name, el);
     }
@@ -204,7 +193,7 @@ export function createAudioController(): AudioController {
   window.addEventListener('pointerdown', unlock);
   window.addEventListener('keydown', unlock);
 
-  rebuildSfx();
+  loadSfx();
 
   return {
     play(name: SfxName): void {
@@ -215,10 +204,8 @@ export function createAudioController(): AudioController {
       void node.play().catch(() => undefined);
     },
 
-    setGameAssets(assets: GameAudio | null): void {
-      gameSounds = assets?.sounds ?? {};
-      rebuildSfx();
-      setMusic(assets?.music ?? null);
+    setGameMusic(url: string | null): void {
+      setMusic(url);
     },
 
     setMusicPlaying(shouldPlay: boolean): void {

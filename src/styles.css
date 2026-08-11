@@ -1,7 +1,7 @@
-/* Ported from playhook @ c348f4246752286b594c8a8eddd2253ea88b0f12 : src/renderer/styles.css
-   Everything game-specific (Play button, info panel, confirm/error views, the select-game list) is gone;
-   what remains is the launcher's empty screen, kept 1:1 except for the browser-specific fixes marked
-   BROWSER below. See PORTED-FROM.md. */
+/* Ported from playhook @ 4461c60e75e18d98d77e80e70b9394e0bd0731a5 : src/renderer/styles.css
+   Everything game-specific (info panel, confirm/error/power views, the per-phase Play states) is gone;
+   what remains is the launcher's empty screen plus the collection carousel, kept 1:1 except for the
+   browser-specific fixes marked BROWSER below. See PORTED-FROM.md. */
 
 /* Bundled UI font: M PLUS Rounded 1c. BROWSER: the launcher ships the full CJK .ttf files (13.7 MB for
    four weights); a public site cannot. These are Google Fonts' own latin woff2 subsets (~21 KB each),
@@ -62,7 +62,7 @@
      nothing shifts. Recompute them if the wallpaper is ever replaced. */
   --d1: rgb(12, 10, 27);
   --d2: rgb(131, 111, 149);
-  --fg: #ffffff;
+  --fg: #f0f0f0;
 }
 
 * {
@@ -115,6 +115,23 @@ body {
   position: absolute;
   inset: 0;
   z-index: -1;
+  /* The screen-level zoom (see the data-screen rules below). Short on purpose: going back it has to be
+     DONE by the time the strip returns, which is 0.35s after the switch (see the reverse-morph delay). */
+  transform: scale(var(--hero-zoom, 1));
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Parallax: flipping through the carousel drags the background a little the same way (hero.ts sets
+   --hero-parallax). It is a SEPARATE element from the zoom above because the two need different tempos —
+   the drift is long and symmetric (ease-in-out), so it reads as the background lagging behind the strip
+   rather than as a nudge — and one element can only transition its transform at one speed. Each layer's
+   own transform is already spoken for by the bg-pan animation, hence the extra wrapper. The shift is
+   bounded in main.ts to what that animation's overscan leaves free, so it never pulls an edge into view. */
+#hero-pan {
+  position: absolute;
+  inset: 0;
+  transform: translateX(var(--hero-parallax, 0px));
+  transition: transform 1.1s cubic-bezier(0.45, 0, 0.35, 1);
 }
 
 /* Each hero layer paints one image (background-image set per-layer from JS) and slowly drifts to one
@@ -147,6 +164,224 @@ body {
   to {
     transform: scale(1.12) translateX(var(--pan-x, 1.5%));
   }
+}
+
+/* ── Collection carousel (the `carousel` screen) ───────────────────────────
+   A strip of covers that slides under a FIXED anchor: the selected card's left edge always sits at
+   x=50 (the same left inset as .bar-content), and the row translates by -106 design px per index (see
+   carousel-geometry.ts). Cards left of the selection keep the normal width — that is what makes the
+   offset linear — and honestly travel off the LEFT EDGE OF THE SCREEN, so the clip is on #carousel
+   (full-width), not on the card row. */
+
+#carousel {
+  position: absolute;
+  left: 0;
+  right: 0;
+  /* Straight off the mockup ("Home"): the cards' bottom edge sits 50 design px from the screen bottom —
+     the same inset the bar content uses — so the selected 204-tall card's top lands at 254. The BOX
+     reaches 30 px lower (20) so the dot hanging under a card stays inside the clip with a little slack;
+     the strip is inset by the same 30 (see #carousel-strip). The top has slack too: the selected card's
+     pulsing ring blooms ~10 px past its edge, and this box CLIPS — too tight a height chops the ring's
+     top arc off. */
+  bottom: calc(20 * var(--px));
+  height: calc(260 * var(--px));
+  overflow: hidden;
+  /* Above the bottom bar's gradient: the bar comes LATER in the DOM, so without this the overlay paints
+     over the cards and washes them out. The popup sits above both (see .popup). */
+  z-index: 1;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+/* Entering an entry pushes the background slightly IN (you moved closer to that game), and stepping back
+   to the strip pulls it out again. Kept small: the hero is already scaled ≥1.06 by its pan, and this
+   multiplies on top of it. */
+#app[data-screen='detail'] #hero {
+  --hero-zoom: 1.05;
+}
+
+/* Only the carousel screen shows the strip; on the entry screen it fades out (the selected card has
+   already handed its geometry over to #play-button — see the morph block below). */
+#app[data-screen='carousel'] #carousel {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+#carousel-strip {
+  position: absolute;
+  /* The anchor: the same x=50 the bar content uses, so the selected card lines up with the title. */
+  left: calc(50 * var(--px));
+  /* Room for the dot below the cards (see #carousel's bottom/height). */
+  bottom: calc(30 * var(--px));
+  display: flex;
+  align-items: flex-end;
+  gap: calc(16 * var(--px));
+  transform: translateX(calc(var(--strip-offset, 0) * var(--px)));
+  transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* A card. The size transition MUST match the strip's curve and duration, or the card's growth and the
+   row's slide visibly drift apart mid-move. */
+.card {
+  position: relative;
+  flex: 0 0 auto;
+  width: calc(90 * var(--px));
+  height: calc(135 * var(--px));
+  border-radius: calc(10 * var(--px));
+  background-color: color-mix(in srgb, var(--d1) 70%, transparent);
+  background-size: cover;
+  background-position: center;
+  overflow: visible;
+  transition:
+    width 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+    height 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.2s ease;
+  cursor: pointer;
+}
+
+.card.is-selected {
+  width: calc(136 * var(--px));
+  height: calc(204 * var(--px));
+}
+
+/* The selected card wears the SAME pulsing ring as a focused Play button: on the carousel the card IS
+   the focus, so it must read as focused. Reuses the play-button's @keyframes and proportions (a 3px d2
+   border 7px out, radius 17), and rides the size transition because it's anchored to the card's box. */
+.card.is-selected::after {
+  content: '';
+  position: absolute;
+  /* Half the Play button's ring (inset 7 / border 3 / radius 17): on a 204-tall card the full-size one
+     stands so far off the edge that its pulse reaches the dot below. */
+  inset: calc(-4 * var(--px));
+  border: calc(2 * var(--px)) solid var(--d2);
+  border-radius: calc(14 * var(--px));
+  /* Its own, gentler pulse for the same reason — pulse-ring's 1.09 scale is 9 px of travel on a card
+     this tall, which would swallow the dot's 16 px of clearance. */
+  animation: card-ring-pulse 1.1s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes card-ring-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.035);
+  }
+}
+/* On the entry screen the strip is fading out — a pulsing ring underneath it would be noise. */
+#app[data-screen='detail'] .card.is-selected::after {
+  animation: none;
+  opacity: 0;
+}
+
+/* The title placeholder shown until the cover arrives (an entry may have none at all). */
+.card-label {
+  position: absolute;
+  inset: calc(8 * var(--px));
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+  font-weight: 500;
+  font-size: calc(14 * var(--px));
+  line-height: calc(18 * var(--px));
+  color: color-mix(in srgb, var(--fg) 75%, transparent);
+}
+/* Once the cover is in, the label would only fight it for attention. */
+.card.has-art .card-label {
+  display: none;
+}
+
+/* The 8x8 dot marking a game that is ON THE INSERTED CARD (launchable right now). A showcase has no card
+   and no launching, so nothing here ever sets .shows-dot — the element and its rules are ported anyway,
+   so the card stays structurally identical to the launcher's and a re-port shows no diff. */
+.card-dot {
+  position: absolute;
+  left: 50%;
+  /* 16 px of clearance under the card, then the 8 px dot — the mockup puts its bottom edge at 26. */
+  bottom: calc(-24 * var(--px));
+  width: calc(8 * var(--px));
+  height: calc(8 * var(--px));
+  margin-left: calc(-4 * var(--px));
+  border-radius: 50%;
+  background: var(--d2);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.card.shows-dot .card-dot {
+  opacity: 1;
+}
+
+/* In the launcher the busy game keeps its dot pulsing wherever you are in the list. Same note as above:
+   .is-busy is never set here. */
+.card.is-busy.shows-dot .card-dot {
+  animation: dot-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes dot-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+
+/* Entering the entry screen the selected card hands over to #play-button, which is pixel-identical at
+   that instant — so the swap is instantaneous and invisible, and only the button animates afterwards. */
+#app[data-screen='detail'] .card {
+  opacity: 0;
+}
+
+/* Going BACK is the entry played backwards, not a cross-fade, and it runs in two beats: FIRST the
+   selected card comes back to full size (the Play button does the growing, then hands over), THEN the
+   rest of the strip arrives. `data-card-morph='off'` is the other case — the carousel opened from the
+   landing page, where no button handed anything over and the strip must be up from frame one. */
+#app[data-screen='carousel'][data-card-morph='on'] #carousel {
+  /* Switched on in ONE frame, not faded: the button disappears at exactly 0.35s, and a strip that is
+     still climbing out of opacity 0 at that instant leaves a hole where the cover just was — read as
+     a blink at the end of the morph. The strip's own cards decide how they come in. */
+  transition: opacity 0s linear 0.35s;
+}
+#app[data-screen='carousel'] .card {
+  /* ONLY the fade-in waits for the grow. Delaying width/height here too would also delay every
+     grow/shrink WHILE flipping — the strip would slide first and the cards resize after.
+     The fan: each card comes in one stagger step later than its neighbour closer to the selection, so the
+     row opens outwards instead of appearing as one block. --fan is set per card by carousel.ts. The fade
+     is much LONGER than the step on purpose — the cards overlap heavily, which reads as one soft wave
+     travelling outwards rather than a row of separate blinks.
+     These three numbers (0.35s morph / 50ms step / 0.4s fade) are mirrored by RETURN_LOCK_MS in
+     carousel-geometry.ts, which locks input out for exactly as long: edit them together. */
+  transition:
+    width 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+    height 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.4s cubic-bezier(0.2, 0, 0.2, 1) calc(0.35s + var(--fan, 0) * 50ms);
+}
+#app[data-screen='carousel'][data-card-morph='on'] .card.is-selected {
+  /* The hand-back is a SWAP, same as the hand-over: this card is pixel-identical to the button it takes
+     over from, so it must be fully opaque in the very frame the button goes — anything softer shows the
+     background through it while the button is already gone. Its neighbours may fade in. */
+  transition:
+    width 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+    height 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0s linear 0.35s;
+}
+#app[data-screen='carousel'][data-card-morph='on'] .play-button {
+  /* Stays visible (and keeps its cover) for exactly that grow, then is swapped out in one frame. */
+  transition:
+    width 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+    height 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0s linear 0.35s;
+}
+/* The cover comes back in the SAME frame the screen flips, not over 0.3s: the button has to be the card
+   from the first pixel of the grow, or the first third of a second is a blank plate — the flash again. */
+#app[data-screen='carousel'][data-card-morph='on'] .play-button::before {
+  transition: none;
 }
 
 /* ── Bottom bar ──────────────────────────────────────────────────────────── */
@@ -191,10 +426,14 @@ body {
   display: none;
 }
 
+/* The vertical anchor is the BOTTOM edge, not the top: in the carousel morph the button is 204 tall and
+   must grow UPWARDS out of the bar (it overflows .bar-content, which has no overflow:hidden). At the
+   default 92x92 — the same height as .bar-content — bottom:0 and top:0 are the same position, so the
+   ordinary screens are pixel-identical to before. */
 .play-button {
   position: absolute;
   left: 0;
-  top: 0;
+  bottom: 0;
   width: calc(92 * var(--px));
   height: calc(92 * var(--px));
   display: flex;
@@ -206,10 +445,59 @@ body {
   background: transparent;
   color: var(--d2);
   cursor: pointer;
+  /* width/height are part of the carousel→entry morph and share the strip's curve; `opacity` is
+     deliberately NOT transitioned — the carousel card and this button swap places instantaneously while
+     they are pixel-identical, and a fade there would show both at once. */
   transition:
     background 0.2s ease,
     color 0.2s ease,
-    transform 0.12s ease;
+    transform 0.12s ease,
+    width 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+    height 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* The morph's cover layer: the selected card's artwork, painted behind the button's own content. It is
+   what makes the button pixel-identical to the card at the moment of the swap, and it fades out as the
+   button shrinks back into the play square. `--card-art` is set from JS (carousel.ts). */
+.play-button::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background-image: var(--card-art, none);
+  background-size: cover;
+  background-position: center;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+
+/* On the carousel screen the button IS the selected card, geometrically — but invisible: the real card
+   in the strip is what the user sees. Entering an entry flips the two and animates this one down to the
+   play square. `display` has to be restored too: the landing page hides Play, and the carousel lives
+   over the landing page. */
+#app[data-screen='carousel'] .play-button {
+  display: flex;
+  width: calc(136 * var(--px));
+  height: calc(204 * var(--px));
+  opacity: 0;
+  pointer-events: none;
+  /* On this screen the button is not a button — it is the card's stand-in, so nothing that makes it read
+     as Play may survive the flip. Coming BACK it is focused (the d2 fill + the icon) and grows from 92 to
+     136x204: without this reset a bright plate flashes over the artwork for the whole grow. The focus fill
+     outranks .play-button's own transparent background, hence the explicit override. */
+  background: transparent;
+}
+#app[data-screen='carousel'] .play-button > * {
+  opacity: 0;
+}
+#app[data-screen='carousel'] .play-button::after {
+  opacity: 0;
+  animation: none;
+  transition: none;
+}
+#app[data-screen='carousel'] .play-button::before {
+  opacity: 1;
 }
 
 /* :hover gated on a live cursor — see the note on .text-button:hover. */
@@ -304,12 +592,6 @@ html:not(.cursor-hidden) .rect-button:hover,
   transform: scale(0.9);
 }
 
-/* …except the search box: clicking it means "put the caret here", not "fire an action", and a field that
-   shrinks under the pointer while you aim at a character is worse than no feedback. */
-.input-button:active {
-  transform: none;
-}
-
 /* The launcher suppresses the native ring outright — .is-focused is its single focus visual, and a
    kiosk has no Tab key. BROWSER: a public page does, and a keyboard user who does not know about the
    arrow keys would otherwise navigate blind. So the ring comes back — but ONLY while the user is
@@ -346,12 +628,17 @@ html.kbd-focus .play-button:focus-visible {
 }
 
 /* ── Title & status ───────────────────────────────────────────────────────
-   BROWSER: in the launcher these two are state-driven — the title only lifts and the status only fades
-   in while a game is busy, and both slide back on the idle screen. The site has no states: both lines
-   are permanently visible, so the busy-layout values are written unconditionally and the per-phase
-   selectors are gone. What DOES vary is the left slot: `left: 124` (play 92 + gap 32) on a game screen,
-   `left: 0` on home, where Play is hidden and the slot is free — the same swap the launcher makes by
-   phase, keyed on the route instead. */
+   BROWSER: in the launcher these two are state-driven — the title only drops and the status only fades
+   in while there is a status to show (`#app[data-status='shown']`), and both slide back on the idle
+   screen. The site has no states: both lines are permanently visible, so those values are written
+   unconditionally and the per-phase selectors are gone. Reproducing the state would mean introducing
+   "the status is empty" here — which already happens, on every cold load of an entry while the feed is
+   in flight — and the heading would hop each time. What DOES vary is the left slot: `left: 124`
+   (play 92 + gap 32) wherever Play is on screen, `left: 0` on the bare landing page.
+
+   NOTE the order the launcher settled on in 0.7.0: the STATUS is the upper line and the title drops
+   below it, which is why #status comes first in the markup. On the landing page that puts the tagline
+   above the product name — accepted deliberately, so one rule holds on every screen. */
 
 .title {
   position: absolute;
@@ -365,9 +652,18 @@ html.kbd-focus .play-button:focus-visible {
   font-size: calc(32 * var(--px));
   line-height: calc(48 * var(--px));
   color: var(--fg);
-  /* Lifted so the status forms a second line below it (the launcher's busy layout). */
-  transform: translateY(calc(-18 * var(--px)));
-  transition: transform 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+  /* One transform, composed from two independent offsets: --title-y is the two-line drop (fixed here,
+     state-driven in the launcher), --text-lift / --title-x the carousel shift. A second `transform`
+     rule would silently override the first, so every mover writes its own variable instead. */
+  --title-y: calc(18 * var(--px));
+  transform: translate(var(--title-x, 0px), calc(var(--title-y, 0px) - var(--text-lift, 0px)));
+  /* `left` is animated too: it moves between the Play-less slot (x=0) and the normal one (x=124), and
+     an un-animated jump there is exactly what makes the name "hop" when the carousel opens. */
+  transition:
+    transform 0.45s cubic-bezier(0.4, 0, 0.2, 1),
+    font-size 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+    left 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.3s ease;
 }
 
 .status {
@@ -382,10 +678,15 @@ html.kbd-focus .play-button:focus-visible {
   font-size: calc(24 * var(--px));
   line-height: calc(36 * var(--px));
   color: var(--fg);
-  /* Pre-positioned below center so it forms the second line under the lifted title. */
-  transform: translateY(calc(18 * var(--px)));
+  /* Pre-positioned ABOVE center so it forms the first line over the lowered title. --status-x/--text-lift
+     are the carousel's horizontal and vertical shifts, exactly as on .title — the two lines move as ONE
+     block. */
+  transform: translate(var(--status-x, 0px), calc(-18 * var(--px) - var(--text-lift, 0px)));
   opacity: 1;
-  transition: opacity 0.3s ease;
+  transition:
+    opacity 0.3s ease,
+    transform 0.45s cubic-bezier(0.4, 0, 0.2, 1),
+    left 0.35s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* Home: no Play button, so both lines move into the empty left slot. */
@@ -394,10 +695,30 @@ html.kbd-focus .play-button:focus-visible {
   left: 0;
 }
 
+/* Carousel level: the text block moves NEXT TO the selected card, not under it — x=202 (the card's right
+   edge plus the 16 gap) with the title's centre 226 from the screen bottom, as in the mockup.
+   `--text-lift` is the single vertical knob (both lines share it) and `--title-x`/`--status-x` the
+   horizontal one — never a second `left`, which would collide with the rule that already owns it.
+   The left slot comes BACK here: the carousel lives over the landing page, where both lines sit at 0,
+   and the launcher's 28 is measured from the ordinary 124 — carried over as-is it would land the text at
+   x=78, straight on top of the strip. */
+#app[data-screen='carousel'] {
+  --text-lift: calc(130 * var(--px));
+  --title-x: calc(28 * var(--px));
+  --status-x: calc(28 * var(--px));
+}
+#app[data-screen='carousel'] .title {
+  font-size: calc(24 * var(--px));
+}
+#app[data-screen='carousel'] .title,
+#app[data-screen='carousel'] .status {
+  left: calc(124 * var(--px));
+}
+
 /* ── Popup (the menu) ───────────────────────────────────────────────────────
    ONE frosted veil + ONE right-side column (450px, measured off the Figma InfoBlockContainer — the
    launcher's own column is 550). The launcher switches four views in here by data-view; the site uses
-   two of them, `details` and `select-game`. Toggled open with .is-open. */
+   one of them, `details`. Toggled open with .is-open. */
 
 .popup {
   position: absolute;
@@ -464,228 +785,18 @@ html.kbd-focus .play-button:focus-visible {
   flex-direction: column;
   align-items: flex-end;
   gap: calc(8 * var(--px));
-  /* A flex item's default `min-height: auto` is its content height, which would let the game list push
-     Search and Close off the bottom of the column no matter what min-height the list itself carries.
-     The launcher sets this only on the select-game group; here it is harmless on both. */
+  /* A flex item's default `min-height: auto` is its content height; the launcher sets this on its own
+     scrolling group and it is harmless here. */
   min-height: 0;
 }
-#popup[data-view='details'] .actions-group[data-group='details'],
-#popup[data-view='select-game'] .actions-group[data-group='select-game'] {
+#popup[data-view='details'] .actions-group[data-group='details'] {
   display: flex;
 }
 
-/* ONLY the game list may claim the column's leftover height (the details stack stays content-sized and
-   pinned to the bottom). Overflow stays VISIBLE here on purpose, so the scrollbar thumb can sit outside
-   the list's right edge. */
-#popup[data-view='select-game'] .actions-group[data-group='select-game'] {
-  flex: 1 1 auto;
-}
-
-/* Positioning context for the custom scrollbar thumb, which overlays the list's right edge. It cannot
-   live inside .select-game-list: that box's own overflow-y would clip a thumb pulled outside it and drag
-   it along with the scroll. And without `position: relative` here the thumb would position off #app. */
-.select-game-scroll {
-  position: relative;
-  flex: 1 1 auto;
-  min-height: 0;
-  width: 100%;
-}
-
-/* The game buttons scroll when the catalogue is long (they never shrink — see .text-button's flex:0 0
-   auto), while Search and Close below stay fixed and reachable. The scroll area takes whatever height
-   the popup column has left, so it adapts to the window instead of a magic cap. */
-.select-game-list {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: calc(8 * var(--px));
-  width: 100%;
-  height: 100%;
-  overflow-y: auto;
-  /* Room so the last item isn't flush against the Search box below. */
-  padding-bottom: calc(8 * var(--px));
-  /* Hide the native scrollbar entirely — Chromium never animates ::-webkit-scrollbar, so a fade is
-     impossible there. The visible one is .select-game-thumb, a real element we can transition. On a
-     public page this beats the native bar for a second reason: a native scrollbar eats width INSIDE the
-     list and shoves the right-aligned buttons over when it appears, and `scrollbar-gutter: stable`
-     reserves that width permanently, breaking the mockups' flush right edge. */
-  scrollbar-width: none;
-}
-.select-game-list::-webkit-scrollbar {
+/* Menu items that come and go with the screen (Library, which only exists on an entry screen with a
+   carousel behind it). `display: none` so they leave the layout AND the focus stack's DOM order. */
+.text-button.is-hidden {
   display: none;
-}
-
-/* Custom scrollbar thumb: a hairline that barely reads against the frosted popup. Positioned from JS
-   (translateY) and faded out when the focus leaves the game list or after a few idle seconds. It sits
-   OUTSIDE the list's right edge (a negative `right` pulls it out of the box), so the buttons keep their
-   full width — nothing shifts when it appears.
-   PORT NOTE: the launcher also lets you DRAG this thumb (pointer capture, ~35 lines). Not ported: the
-   list scrolls by wheel, gamepad and keyboard, and grabbing a 4px hairline is a marginal path. */
-.select-game-thumb {
-  --thumb-width: calc(4 * var(--px));
-  --thumb-gap: calc(16 * var(--px)); /* clearance between the buttons and the scrollbar */
-  position: absolute;
-  top: 0;
-  right: calc(-1 * (var(--thumb-width) + var(--thumb-gap)));
-  width: var(--thumb-width);
-  /* Fixed height: a proportional thumb (clientHeight/scrollHeight) grows to nearly the full track when
-     the list only just overflows, which reads as a bug. JS only positions it (translateY). */
-  height: calc(32 * var(--px));
-  border-radius: calc(2 * var(--px));
-  background: color-mix(in srgb, var(--fg) 10%, transparent);
-  opacity: 0;
-  transition: opacity 0.35s ease;
-  /* Purely an indicator here (no drag), so it never needs to catch the pointer. */
-  pointer-events: none;
-}
-.select-game-thumb.is-visible {
-  opacity: 1;
-}
-
-/* ── Game buttons, marquee ──────────────────────────────────────────────────
-   Game buttons size to their title (like every other .text-button, right-aligned in the stack), but never
-   wider than the column's 424px cap — a long title is HARD-CLIPPED there (no ellipsis). Only while the
-   button is focused does the title marquee-scroll back and forth so the full name is readable; the popup
-   never widens. Non-overflowing titles never scroll.
-   The cap is derived from the column rather than written as 424 so the two can't drift apart: the Figma
-   frame puts 26px between the widest button and the column's left edge. */
-.select-game-list .game-button {
-  width: auto;
-  max-width: calc(100% - 26 * var(--px));
-  justify-content: flex-start;
-  overflow: hidden;
-}
-.game-label {
-  /* `0 1 auto`: sized by the text, but allowed to SHRINK once the button hits max-width — that shrink
-     (with min-width:0) is what produces the clip. `1 …` would instead stretch it on short titles. */
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  --fade: calc(8 * var(--px)); /* soft-fade width at a clipped edge */
-}
-/* A clipped (overflowing) title fades out at the RIGHT edge so the cut looks soft, not chopped. */
-.game-button.is-clipped .game-label {
-  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - var(--fade)), transparent 100%);
-  mask-image: linear-gradient(to right, #000 calc(100% - var(--fade)), transparent 100%);
-}
-/* While the focused title marquee-scrolls, fade BOTH edges so the text softly enters/leaves on each side. */
-.game-button.is-scrolling .game-label {
-  -webkit-mask-image: linear-gradient(
-    to right,
-    transparent 0,
-    #000 var(--fade),
-    #000 calc(100% - var(--fade)),
-    transparent 100%
-  );
-  mask-image: linear-gradient(
-    to right,
-    transparent 0,
-    #000 var(--fade),
-    #000 calc(100% - var(--fade)),
-    transparent 100%
-  );
-}
-.game-label-inner {
-  display: inline-block;
-  white-space: nowrap;
-  will-change: transform;
-}
-/* Ping-pong marquee: shift + per-title duration are set from JS (measured overflow); `alternate` scrolls
-   to the end and back, `ease-in-out` dwells at each edge so the start/end are readable. */
-.game-button.is-scrolling .game-label-inner {
-  animation: game-marquee var(--marquee-duration, 6s) ease-in-out infinite alternate;
-}
-@keyframes game-marquee {
-  from {
-    transform: translateX(0);
-  }
-  to {
-    transform: translateX(var(--marquee-shift, 0));
-  }
-}
-
-/* ── List placeholder (loading / empty / error / no matches) ────────────────
-   Deliberately NOT a button: it must stay out of the focus stack, or A would land on a line that does
-   nothing and the whole list would look broken. */
-.list-placeholder {
-  flex: 0 0 auto;
-  height: calc(92 * var(--px));
-  padding: 0 calc(13 * var(--px));
-  display: flex;
-  align-items: center;
-  font-weight: 500;
-  font-size: calc(28 * var(--px));
-  white-space: nowrap;
-  color: color-mix(in srgb, var(--d2) 65%, transparent);
-}
-
-/* ── Input (Search) ─────────────────────────────────────────────────────────
-   A TextButton you can type into. The width follows the content (115px empty, 250px with "Search: bloo"
-   in the mockups), measured by .input-mirror — see controls.ts. */
-.input-button {
-  /* The label is left-aligned inside the box, unlike a plain TextButton's centered caption. */
-  justify-content: flex-start;
-  gap: 0;
-  overflow: hidden;
-  /* Containing block for the absolutely-positioned mirror, so it can't stretch anything. */
-  position: relative;
-  /* Same 424 cap as a game button, and for the same reason: the box grows LEFT from a fixed right edge,
-     so without it a wide enough query walks straight out of the column and over the veil. The input's
-     `maxlength` bounds the text but not its width — 24 capitals are twice as wide as 24 lowercase.
-     Past the cap the field shrinks (min-width:0) and scrolls its own content, which keeps the caret
-     in view — the one thing a plain `overflow: hidden` would not. */
-  max-width: calc(100% - 26 * var(--px));
-}
-
-.input-prefix,
-.input-colon {
-  pointer-events: none;
-}
-
-/* The colon only exists once something has been typed: mockup 2 reads "Search", mockup 3 "Search: bloo". */
-.input-colon {
-  display: none;
-  padding-right: calc(6 * var(--px));
-}
-.input-button.is-filled .input-colon {
-  display: inline;
-}
-
-.input-field {
-  /* Sized from JS (the mirror below); this is only the floor for an empty field's caret. */
-  width: calc(1 * var(--px));
-  min-width: 0;
-  padding: 0;
-  border: none;
-  outline: none;
-  background: transparent;
-  color: inherit;
-  font-family: inherit;
-  font-weight: inherit;
-  font-size: inherit;
-  line-height: inherit;
-  /* The global kiosk rules below make a text field unusable — a caret you cannot place and text you
-     cannot select. Undo them here and nowhere else. */
-  user-select: text;
-  -webkit-user-select: text;
-  cursor: text;
-}
-.input-button {
-  cursor: text;
-}
-
-/* Hidden twin of the field, carrying the same text in the same font: its offsetWidth is the width the
-   field needs. `size` is no substitute — it counts monospace ex units and misses on a proportional font. */
-.input-mirror {
-  position: absolute;
-  visibility: hidden;
-  white-space: pre;
-  pointer-events: none;
-  font-family: inherit;
-  font-weight: inherit;
-  font-size: inherit;
-  letter-spacing: inherit;
 }
 
 /* ── TextButton — textual sibling of .rect-button ───────────────────────────
@@ -702,7 +813,7 @@ html.kbd-focus .play-button:focus-visible {
 .text-button {
   height: calc(92 * var(--px));
   /* Never squeeze: these are flex items in a vertical stack, and the default flex-shrink:1 would compress
-     them instead of letting a long list scroll (see .select-game-list). */
+     them instead of keeping their own height. */
   flex: 0 0 auto;
   min-width: calc(184 * var(--px));
   padding: 0 calc(13 * var(--px));
@@ -786,13 +897,15 @@ html:not(.cursor-hidden) .text-button:hover,
   #app[data-route='home'] .status {
     left: auto;
   }
-  .title {
-    order: 1;
-  }
+  /* The status is the UPPER line on the desktop layout (see the swap note there), so it must come first
+     here too — the two raster orders disagreeing is a bug, not a missing adaptation. */
   .status {
-    order: 2;
+    order: 1;
     /* Wrap instead of running off the edge — this line is the widest thing in the bar. */
     white-space: normal;
+  }
+  .title {
+    order: 2;
   }
 
   .popup-column {
@@ -802,9 +915,9 @@ html:not(.cursor-hidden) .text-button:hover,
 
 /* ── BROWSER: reduced motion ───────────────────────────────────────────────
    The hero both pans (animation) and cross-fades (a 1s opacity transition). Killing only the animation
-   would leave the fade running, so both go. The Play button's ring and the game-title marquee are the
-   other two perpetual motions on the page — an endlessly pulsing ring at the screen edge is precisely
-   what this query exists for; the ring itself stays, only its beat stops. */
+   would leave the fade running, so both go. The Play button's ring and the selected card's are the other
+   two perpetual motions on the page — an endlessly pulsing ring is precisely what this query exists for;
+   the rings themselves stay, only their beat stops. */
 @media (prefers-reduced-motion: reduce) {
   .hero-layer {
     animation: none;
@@ -814,7 +927,7 @@ html:not(.cursor-hidden) .text-button:hover,
   .play-button.is-focused::after {
     animation: none;
   }
-  .game-button.is-scrolling .game-label-inner {
+  .card.is-selected::after {
     animation: none;
   }
 }

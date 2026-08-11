@@ -14,12 +14,7 @@
     "assets/hero1.jpg",
     "assets/hero3.jpg"
   ],
-  "sounds": {
-    "play": "assets/play.wav",
-    "navigate": "assets/move.wav",
-    "button": "assets/button.wav",
-    "back": "assets/back.wav"
-  },
+  "gridImage": "assets/grid.webp",
   "backgroundMusic": "assets/theme.mp3",
   "launchTimeoutSec": 60
 }

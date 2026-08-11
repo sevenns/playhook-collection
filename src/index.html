@@ -28,10 +28,21 @@
   <body>
     <main id="app" data-route="home">
       <!-- Hero background: two stacked layers behind all UI (z-index only on the container, see
-           styles.css). JS writes the image + pan into the idle layer and cross-fades it in, GTA-5-style. -->
+           styles.css). JS writes the image + pan into the idle layer and cross-fades it in, GTA-5-style.
+           #hero carries the screen zoom (fast, on entering an entry), #hero-pan the carousel parallax
+           (slow) — one element could only carry one transform at one speed. -->
       <div id="hero">
-        <div class="hero-layer"></div>
-        <div class="hero-layer"></div>
+        <div id="hero-pan">
+          <div class="hero-layer"></div>
+          <div class="hero-layer"></div>
+        </div>
+      </div>
+
+      <!-- The collection carousel (the `carousel` screen): a horizontal strip of covers sliding under a
+           fixed anchor, over the landing page. Cards are built from JS (carousel.ts); a cover is loaded
+           only once its card comes near the selection. -->
+      <div id="carousel" aria-hidden="true">
+        <div id="carousel-strip"></div>
       </div>
 
       <!-- Bottom bar, ported from the launcher: the two-line title+status block, More on the right, and
@@ -74,7 +85,7 @@
       </footer>
 
       <!-- Menu popup: ONE frosted veil + ONE right-side column (450px), same component as the launcher's,
-           with two of its four views. Default focus is the BOTTOM button in both — see controls.ts.
+           with one of its four views. Default focus is the BOTTOM button — see controls.ts.
            `inert` while closed: the column only fades out via opacity, so without it the buttons would
            stay in the tab order (the launcher never cared — it is a kiosk with no tab key). -->
       <section id="popup" class="popup" aria-hidden="true" data-view="details" inert>
@@ -92,43 +103,14 @@
               <a id="menu-github" class="text-button" href="https://github.com/sevenns/playhook"
                 >Github</a
               >
-              <!-- Collection is a VIEW, not a route: this switches the popup to the game list, from the
-                   home screen and from a game screen alike (mockups 1 and 5). -->
+              <!-- Back to the carousel — the mouse counterpart of the B button, shown only on an entry
+                   screen that has a carousel to return to (see controls.ts). -->
+              <button id="menu-library" class="text-button is-hidden" type="button">Library</button>
+              <!-- Collection opens the carousel over the landing page. It stays a menu item rather than
+                   becoming a route: `#/collection` is written with replaceState, and without this button
+                   the catalogue would be reachable only by typing that hash. -->
               <button id="menu-collection" class="text-button" type="button">Collection</button>
               <button id="menu-close" class="text-button" type="button">Close</button>
-            </div>
-
-            <!-- Select-game list: the catalogue (built from JS, each a .text-button carrying data-slug)
-                 inside a scrollable box, with Search and Close pinned below it so both stay reachable
-                 while the list scrolls. -->
-            <div class="actions-group" data-group="select-game">
-              <!-- The native scrollbar is hidden and replaced by #select-game-thumb: a real element, so
-                   it can fade in/out (Chromium never animates ::-webkit-scrollbar). controls.ts
-                   positions it from the list's scroll geometry. -->
-              <div class="select-game-scroll">
-                <div id="select-game-list" class="select-game-list"></div>
-                <div id="select-game-thumb" class="select-game-thumb" aria-hidden="true"></div>
-              </div>
-              <!-- Search: a TextButton you can type into. "Search" is a static label (it stays put while
-                   you type, as in the mockups) and the colon only appears once there is a value. The
-                   mirror span measures the value so the box grows with its content — <input> cannot size
-                   itself, and `size` counts monospace ex units, which lie on a proportional font. -->
-              <div class="text-button input-button" id="menu-search">
-                <span class="input-prefix">Search</span>
-                <span class="input-colon" aria-hidden="true">:</span>
-                <input
-                  id="search-field"
-                  class="input-field"
-                  type="text"
-                  maxlength="24"
-                  autocomplete="off"
-                  spellcheck="false"
-                  autocapitalize="off"
-                  aria-label="Search the collection"
-                />
-                <span class="input-mirror" aria-hidden="true"></span>
-              </div>
-              <button id="menu-select-close" class="text-button" type="button">Close</button>
             </div>
           </div>
         </div>

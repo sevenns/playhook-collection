@@ -9,9 +9,9 @@ game object and a non-empty array of games validate.
 | | |
 |---|---|
 | Source repo | [sevenns/playhook](https://github.com/sevenns/playhook) |
-| Version | 0.6.2 |
-| Commit | `c348f4246752286b594c8a8eddd2253ea88b0f12` |
-| Dumped | 2026-07-23 |
+| Version | 0.7.0 |
+| Commit | `4461c60e75e18d98d77e80e70b9394e0bd0731a5` |
+| Dumped | 2026-08-11 |
 
 ## What the schema does NOT check
 
@@ -22,11 +22,21 @@ conversion — the docblock on `manifestJsonSchema()` says so outright:
 - **mode exclusivity** — `steam`, `install` and a bare `executable` are mutually exclusive ways to
   describe where the game lives; a manifest that sets two of them passes the schema and is rejected by
   the launcher.
-- **path traversal** — `executable`, `heroImage` and `saveOnCard` must resolve inside the card root.
-  `..` and absolute paths are refused.
+- **path traversal** — `executable`, `heroImage`, `gridImage` and `saveOnCard` must resolve inside the
+  card root. `..` and absolute paths are refused. `heroImage` and `gridImage` are equally strict: either
+  one escaping the root REJECTS THE GAME, and in a single-game manifest — which is what every entry here
+  is — rejecting the one game is fatal for the whole card.
 - **`pcSavePath` prefix allowlist** — only `%DOCUMENTS%`, `%LOCALLOW%`, `%APPDATA%`, `%LOCALAPPDATA%`
   and `%USERPROFILE%` are accepted.
 - **duplicate ids** inside a multi-game array.
+- **the `heroImage` cap of 3** — the zod schema is a bare union with no `.max`, so no `maxItems` reaches
+  the dump. The runtime keeps the first three and logs a warning; Configure refuses to save. Our own gate
+  in `scripts/collection-feed.mjs` fails the build instead, so the collection never publishes a fourth
+  background that the launcher would silently drop.
+- **the removal of `sounds`** — the block left the card format in 0.7.0 (UI sounds now always come from
+  the set chosen in Settings), and the schema is not strict, so a stale `sounds` block still passes Ajv
+  and is then ignored by the launcher. The same feed gate rejects it, because an entry published here is
+  a template other people copy.
 
 So: **validating against this schema is necessary, not sufficient.** The authoritative verdict is
 `validateManifestText()` in the launcher. Anything published here should be opened in Playhook's

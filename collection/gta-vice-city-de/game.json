@@ -9,13 +9,8 @@
     "assets/1076235.png",
     "assets/1124247.png"
   ],
+  "gridImage": "assets/grid.webp",
   "saveOnCard": "saves",
   "pcSavePath": "%DOCUMENTS%/Rockstar Games/GTA Vice City Definitive Edition/SaveGames",
-  "sounds": {
-    "play": "assets/play.wav",
-    "navigate": "assets/move.wav",
-    "button": "assets/button.wav",
-    "back": "assets/back.wav"
-  },
   "backgroundMusic": "assets/theme.mp3"
 }
