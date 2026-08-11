@@ -32,9 +32,13 @@ export interface Router {
    * tab at the bare screen name (loading / an error is not a page title).
    */
   setGameCopy(name: string, documentTitle: string | null): void;
-  /** The entry screen's second line while a session is in flight ("Running...", "Saving progress...").
-   *  Empty the rest of the time — an entry that is not doing anything has nothing to report. */
-  setGameStatus(status: string): void;
+  /**
+   * The second line while a session is in flight ("Running...", "Saving progress..."). It belongs to the
+   * ENTRY, not to a screen, so it shows wherever that entry is on screen — its own screen or its card in
+   * the carousel — and is empty everywhere else. Empty is also the resting state: an entry that is not
+   * doing anything has nothing to report.
+   */
+  setSessionStatus(status: string): void;
   /**
    * The landing page's two lines while the carousel is browsing: the selected entry's name in place of
    * "Playhook", with the same caption under it that its own screen carries. `null` restores the landing
@@ -96,8 +100,9 @@ export function createRouter(): Router {
   let wantsCollection = initial.wantsCollection;
   // The entry screen's name line, owned by whoever resolves the slug against the feed.
   let gameName = '';
-  let gameStatus = '';
   let gameDocumentTitle: string | null = null;
+  // The session line for whichever entry is on screen; '' when none is doing anything.
+  let sessionStatus = '';
   // The name the carousel is browsing over the landing page; null = the landing page's own copy.
   let browseName: string | null = null;
   // Set once start() has run, so the toggles below can re-render through the same path a hashchange takes.
@@ -120,15 +125,16 @@ export function createRouter(): Router {
     app.dataset['route'] = route.kind;
     if (route.kind === 'home') {
       titleEl.textContent = browseName ?? HOME_TITLE;
-      // Only the landing page has a second line — the tagline. Browsing a card, the card's name is all
-      // there is to say.
-      statusEl.textContent = browseName === null ? HOME_STATUS : '';
+      // The bare landing page has its tagline; browsing a card in the carousel, the card's name is all
+      // there is to say — unless that card's game is doing something, which is the one thing worth
+      // saying over it.
+      statusEl.textContent = browseName === null ? HOME_STATUS : sessionStatus;
       applyStatusFlag();
       document.title = HOME_DOCUMENT_TITLE;
       return;
     }
     titleEl.textContent = gameName;
-    statusEl.textContent = gameStatus;
+    statusEl.textContent = sessionStatus;
     applyStatusFlag();
     document.title =
       gameDocumentTitle === null
@@ -151,10 +157,10 @@ export function createRouter(): Router {
       if (route.kind === 'game') render();
     },
 
-    setGameStatus(status: string): void {
-      if (status === gameStatus) return;
-      gameStatus = status;
-      if (route.kind === 'game') render();
+    setSessionStatus(status: string): void {
+      if (status === sessionStatus) return;
+      sessionStatus = status;
+      render();
     },
 
     setBrowseCopy(name: string | null): void {
@@ -202,8 +208,8 @@ export function createRouter(): Router {
         gameName = '';
         gameDocumentTitle = null;
         browseName = null;
-        // NOT gameStatus: a session belongs to a game, not to the screen you happen to be on, and main
-        // re-applies it for the new route (see applySession there).
+        // NOT sessionStatus: a session belongs to an entry, not to the screen you happen to be on, and
+        // main re-applies it for whatever the new screen is browsing (see applySession there).
         render();
         onChange(route, wantsCollection);
       });

@@ -59,8 +59,15 @@ const carousel = createCarousel({
   // The selection moved: the bar copy, the background and the music follow it, exactly as they follow
   // the launcher's browse channel — except that here the entry is already in hand, with no round trip
   // to debounce around.
-  onBrowse: (entry) => applyEntry(entry, true),
-  onScreenChange: () => controls.onScreen(),
+  onBrowse: (entry) => {
+    applyEntry(entry, true);
+    // The strip moved onto a different card: the session line follows what is browsed, not the screen.
+    applySession();
+  },
+  onScreenChange: () => {
+    controls.onScreen();
+    applySession();
+  },
   onActivate: (entry) => {
     // Entering a card is an ordinary button press — same cue as any other "open" action.
     audio.play('button');
@@ -80,18 +87,26 @@ const carousel = createCarousel({
 
 const controls = createControls({ audio, router, carousel, session });
 
+/** Which entry the bar is describing right now: its own screen, or the card the strip is standing on. */
+function browsedSlug(): string | null {
+  const route = router.current();
+  if (route.kind === 'game') return route.slug;
+  if (carousel.screen() === 'carousel') return carousel.selected()?.slug ?? null;
+  return null;
+}
+
 /**
- * What a session in flight shows. The bar reports it only on ITS OWN entry's screen: browsing another
- * card while a game runs must not put that game's status under this one's name — the launcher is just as
- * careful about it. Everywhere else the running entry is marked by its pulsing dot in the strip.
+ * What a session in flight shows. The status belongs to the ENTRY, not to a screen, so it follows that
+ * entry wherever it is on screen — its own screen AND its card in the carousel — and goes blank the
+ * moment you look at a different one. That is the launcher's rule verbatim (`statusText` in its app.ts):
+ * "Running..." under another game's cover would be a lie, and there the pulsing dot says it instead.
  */
 function applySession(): void {
   const active = session.current();
-  const route = router.current();
-  const onItsScreen = active !== null && route.kind === 'game' && route.slug === active.slug;
-  if (active !== null && onItsScreen) app.dataset['busy'] = busyKindOf(active.phase);
+  const onScreen = active !== null && active.slug === browsedSlug();
+  if (active !== null && onScreen) app.dataset['busy'] = busyKindOf(active.phase);
   else delete app.dataset['busy'];
-  router.setGameStatus(active !== null && onItsScreen ? statusOf(active.phase) : '');
+  router.setSessionStatus(active !== null && onScreen ? statusOf(active.phase) : '');
   carousel.setBusyEntry(active?.slug ?? null);
   controls.onSession();
 }
