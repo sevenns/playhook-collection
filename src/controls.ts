@@ -21,6 +21,7 @@ import { type AudioController } from './audio.js';
 import { type Router } from './router.js';
 import { type CollectionEntry, type ListState } from './collection.js';
 import { type Carousel } from './carousel.js';
+import { formatDate, formatPlaytime, statsFor } from './stats.js';
 import { req, reqQuery } from './dom.js';
 
 // Gamepad A doesn't trigger :active, so flash a press class to play the scale-down animation.
@@ -74,6 +75,7 @@ export function createControls(deps: ControlsDeps): Controls {
   const moreButton = req<HTMLButtonElement>('more-button');
   const popup = req('popup');
   const popupVeil = reqQuery<HTMLElement>('#popup .popup-veil');
+  const infoPanel = req('info-panel');
   const menuGithub = req<HTMLAnchorElement>('menu-github');
   const menuLibrary = req<HTMLButtonElement>('menu-library');
   const menuClose = req<HTMLButtonElement>('menu-close');
@@ -204,6 +206,44 @@ export function createControls(deps: ControlsDeps): Controls {
     applyStackFocus(moveDomFocus);
   }
 
+  // ── Info panel (the entry's play statistics) ─────────────────────────────────
+
+  function infoItem(label: string, value: string): HTMLElement {
+    const item = document.createElement('div');
+    item.className = 'info-item';
+    const labelEl = document.createElement('div');
+    labelEl.className = 'info-label';
+    labelEl.textContent = label;
+    const valueEl = document.createElement('div');
+    valueEl.className = 'info-value';
+    valueEl.textContent = value;
+    item.append(labelEl, valueEl);
+    return item;
+  }
+
+  /**
+   * Statistics belong to an ENTRY, so the panel is empty on the landing page — the same rule the launcher
+   * follows on its "Insert a game card" screen, where stale numbers under a menu that no longer describes
+   * a game would be worse than nothing.
+   */
+  function applyInfoPanel(): void {
+    const route = router.current();
+    const entry =
+      route.kind === 'game'
+        ? collectionEntries.find((candidate) => candidate.slug === route.slug)
+        : undefined;
+    if (entry === undefined) {
+      infoPanel.replaceChildren();
+      return;
+    }
+    const stats = statsFor(entry.slug);
+    infoPanel.replaceChildren(
+      infoItem('Last played', formatDate(stats.lastPlayedAt)),
+      infoItem('Playtime', formatPlaytime(stats.totalPlaySeconds)),
+      infoItem('Launches', String(stats.launchCount)),
+    );
+  }
+
   // ── Popup ────────────────────────────────────────────────────────────────────
 
   function openDetails(): void {
@@ -214,6 +254,7 @@ export function createControls(deps: ControlsDeps): Controls {
     // unreachable now — and without setting it again on close they would stay in the tab order.
     popup.removeAttribute('inert');
     applyGithubHref();
+    applyInfoPanel();
     applyMenuLibrary();
     focusStackBottom();
     applyFocus(); // the bar highlight clears while the popup is open
@@ -586,6 +627,8 @@ export function createControls(deps: ControlsDeps): Controls {
       applyMenuLibrary();
       restoreFocus(previous, false);
       applyGithubHref();
+      // The feed can land with the menu already open on a cold deep link — fill the panel that was empty.
+      applyInfoPanel();
     },
 
     onRoute(): void {

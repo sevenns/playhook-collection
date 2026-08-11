@@ -19,6 +19,7 @@ Source: **playhook 0.7.0**, commit `4461c60e75e18d98d77e80e70b9394e0bd0731a5`.
 | `src/styles.css` | `src/renderer/styles.css` | trimmed + browser fixes, each marked `BROWSER:` in place; TextButton padding follows Figma (13) rather than the launcher (32) |
 | `src/controls.ts` | `src/renderer/controls.ts` | rewritten by hand against it (1000-odd lines → ~570), including the routing of the six nav primitives across strip / bar / popup stack |
 | `src/audio.ts` | `src/renderer/audio.ts` | SFX written fresh; the music crossfade engine ported 1:1 minus the ambience and browse source layers, plus an autoplay unlock the launcher does not need |
+| `src/stats.ts` | `src/renderer/app.ts` (`buildInfoPanel`) + `src/renderer/format.ts` | the panel's SHAPE and its formatters; the numbers themselves are invented (see below) |
 | `src/main.ts` | `src/renderer/app.ts` | only the wiring tail survives; every `window.api` subscription is replaced by one fetch of the collection feed |
 | `src/preload.ts` | — | new; the launcher's heroes are data URLs and never need preloading |
 | `src/router.ts` | — | new; the launcher has no routes |
@@ -46,6 +47,11 @@ and why a public web page cannot.
 - **The idle timeout dims the highlight but not `:focus-visible`.** After 5s the launcher's timeout is
   reproduced — cursor hidden, bar highlight dormant — but the browser's own focus ring stays, or a
   keyboard user would lose their place mid-read.
+- **The play statistics are made up.** Last played / Playtime / Launches come from StatsService in the
+  launcher, which counts real sessions on the user's machine; a showcase has none to count. The three
+  figures are derived from the entry's slug (`src/stats.ts`), so a card always shows the same numbers
+  rather than re-rolling under the reader, and the date is an offset back from today so the demo does not
+  age. They are there to show what the launcher's panel looks like — nobody's playtime is being reported.
 - **Play does nothing.** It is in the bar for the resemblance; there is no main process to launch
   anything. It plays the `play` sound and stops there. In the carousel it does have a second job, the
   same one as in the launcher: it is the selected card's invisible geometric stand-in for the morph.

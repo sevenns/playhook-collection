@@ -842,6 +842,40 @@ html.kbd-focus .play-button:focus-visible {
   opacity: 1;
 }
 
+/* ── Popup content (the entry's play statistics) ────────────────────────────
+   Top content — inset 100 from the column top. Only the active view's block shows; the launcher has
+   three (info stats / confirm question+note / error title+detail), the site keeps the first. */
+.popup-content {
+  margin-top: calc(100 * var(--px));
+}
+.popup-content > * {
+  display: none;
+  flex-direction: column;
+  gap: calc(32 * var(--px));
+}
+#popup[data-view='details'] .popup-info {
+  display: flex;
+}
+
+.info-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.info-label {
+  font-weight: 300;
+  font-size: calc(24 * var(--px));
+  line-height: calc(36 * var(--px));
+  color: color-mix(in srgb, var(--fg) 75%, transparent);
+}
+
+.info-value {
+  font-weight: 500;
+  font-size: calc(24 * var(--px));
+  line-height: calc(36 * var(--px));
+  color: var(--fg);
+}
+
 /* ── Action stack ───────────────────────────────────────────────────────────
    Pinned to the column bottom (margin-top:auto), as a vertical stack aligned to the right edge — a
    longer label grows LEFT, the right edge stays fixed. Default focus is the BOTTOM button. */

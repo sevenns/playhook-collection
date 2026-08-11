@@ -91,6 +91,12 @@
       <section id="popup" class="popup" aria-hidden="true" data-view="details" inert>
         <div class="popup-veil"></div>
         <div class="popup-column">
+          <!-- Top content: the entry's play statistics, built from JS (stats.ts). Same shape as the
+               launcher's info panel — and, unlike it, made up: a showcase counts no sessions. -->
+          <div class="popup-content">
+            <div class="popup-info" id="info-panel"></div>
+          </div>
+
           <!-- Bottom action stacks — one group per view; only the active view's group shows (CSS).
                Each is a vertical stack aligned to the right edge: a longer label grows to the LEFT,
                the right edge stays fixed. -->
