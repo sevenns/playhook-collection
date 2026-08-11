@@ -699,18 +699,16 @@ html.kbd-focus .play-button:focus-visible {
 }
 
 /* ── Title & status ───────────────────────────────────────────────────────
-   BROWSER: in the launcher these two are state-driven — the title only drops and the status only fades
-   in while there is a status to show (`#app[data-status='shown']`), and both slide back on the idle
-   screen. The site has no states: both lines are permanently visible, so those values are written
-   unconditionally and the per-phase selectors are gone. Reproducing the state would mean introducing
-   "the status is empty" here — which already happens, on every cold load of an entry while the feed is
-   in flight — and the heading would hop each time. What DOES vary is the left slot: `left: 124`
-   (play 92 + gap 32) wherever Play is on screen, `left: 0` on the bare landing page.
+   The two-line block is state-driven, as in the launcher: the name only moves off centre once there IS
+   a second line (`#app[data-status='shown']`, set by the router from the text it just wrote). Only the
+   landing page has one — its tagline; an entry's own name is the whole bar copy elsewhere. What ALSO
+   varies is the left slot: `left: 124` (play 92 + gap 32) wherever Play is on screen, `left: 0` on the
+   bare landing page.
 
    ORDER: the NAME is the upper line and the status sits under it. The launcher inverts that in 0.7.0 —
    there `.status` reports transient work ("Installing… 42%") over a name that is always on screen, so
-   the news belongs on top. Here the second line is a constant caption ("Playhook - Collection"), and
-   burying the entry's name under it would read as the caption being the heading. */
+   the news belongs on top. Here the second line is the product's tagline under the product's name, and
+   putting the tagline above it would read as the tagline being the heading. */
 
 .title {
   position: absolute;
@@ -724,10 +722,9 @@ html.kbd-focus .play-button:focus-visible {
   font-size: calc(32 * var(--px));
   line-height: calc(48 * var(--px));
   color: var(--fg);
-  /* One transform, composed from two independent offsets: --title-y lifts the name so the status forms a
-     second line under it, --text-lift / --title-x are the carousel shift. A second `transform` rule
-     would silently override the first, so every mover writes its own variable instead. */
-  --title-y: calc(-18 * var(--px));
+  /* One transform, composed from two independent offsets: --title-y lifts the name once a status forms a
+     second line under it (see the rule below), --text-lift / --title-x are the carousel shift. A second
+     `transform` rule would silently override the first, so every mover writes its own variable instead. */
   transform: translate(var(--title-x, 0px), calc(var(--title-y, 0px) - var(--text-lift, 0px)));
   /* `left` is animated too: it moves between the Play-less slot (x=0) and the normal one (x=124), and
      an un-animated jump there is exactly what makes the name "hop" when the carousel opens. */
@@ -754,11 +751,20 @@ html.kbd-focus .play-button:focus-visible {
      --text-lift are the carousel's horizontal and vertical shifts, exactly as on .title — the two lines
      move as ONE block. */
   transform: translate(var(--status-x, 0px), calc(18 * var(--px) - var(--text-lift, 0px)));
-  opacity: 1;
+  opacity: 0;
   transition:
     opacity 0.3s ease,
     transform 0.45s cubic-bezier(0.4, 0, 0.2, 1),
     left 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* A second line on screen: the name lifts so the status can fade in BELOW it. The status fades in
+   TOGETHER with the name's move — no delay: sequencing them made the line look like it was lagging. */
+#app[data-status='shown'] .title {
+  --title-y: calc(-18 * var(--px));
+}
+#app[data-status='shown'] .status {
+  opacity: 1;
 }
 
 /* Home: no Play button, so both lines move into the empty left slot. */

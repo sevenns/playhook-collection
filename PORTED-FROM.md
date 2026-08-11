@@ -70,11 +70,11 @@ and why a public web page cannot.
   neither.
 - **`artRev` is not ported.** The launcher re-decodes a cover when Configure rewrites it; here covers are
   URLs and the browser handles staleness.
-- **Both bar lines are always on screen, and the NAME is the upper one.** The launcher shows the status
-  only when there is one (`#app[data-status='shown']`) and drops the name below it, because its status
-  reports transient work over a name that is always there. Here the second line is a constant caption
-  ("Playhook - Collection") and the state would be "the feed has not landed yet" — which happens on every
-  cold load, so the heading would hop each time. Written unconditionally instead, name on top.
+- **The NAME is the upper bar line, not the lower one.** The state machine is the launcher's
+  (`#app[data-status='shown']`: no second line, no move), but the two lines are the other way round —
+  there `.status` reports transient work over a name that is always on screen, so the news goes on top;
+  here the only second line is the product's tagline under the product's name. An entry screen and the
+  carousel have no status at all: the card's own name is the whole bar copy.
 - **The bar text is not cut on navigation.** The launcher adds `.is-swapping` while the browse answer is
   in flight; here the entry is already in hand and there is no stale-text window to cover.
 - **Catalogue order is alphabetical by title**, fixed by the feed generator — not a play history.

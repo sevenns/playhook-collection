@@ -18,9 +18,8 @@ export type Route = { readonly kind: 'home' } | { readonly kind: 'game'; readonl
 const HOME_TITLE = 'Playhook';
 const HOME_STATUS = 'Bring console vibes to your PC';
 const HOME_DOCUMENT_TITLE = 'Playhook - bring console vibes to your PC';
-/** The caption under an entry's name, on the carousel and on its own screen alike. */
-const ENTRY_STATUS = 'Playhook - Collection';
-/** What goes in the tab before the entry's name. */
+/** What goes in the tab before the entry's name. There is no on-screen counterpart: an entry's own name
+ *  is the whole bar copy, and a caption repeated under every one of them said nothing. */
 const ENTRY_DOCUMENT_TITLE = 'Playhook - Collection';
 
 export interface Router {
@@ -103,16 +102,30 @@ export function createRouter(): Router {
   // the site entirely — which is not what "step out of this game" means.
   let navigated = false;
 
+  /**
+   * Tells the CSS whether there IS a second line, the way the launcher's app.ts does. Without it the name
+   * would stay lifted over an empty slot on every screen that has no status — sitting off-centre for no
+   * reason the reader can see. Set from the text that was just written, so the two can never disagree.
+   */
+  function applyStatusFlag(): void {
+    if (statusEl.textContent === '') delete app.dataset['status'];
+    else app.dataset['status'] = 'shown';
+  }
+
   function render(): void {
     app.dataset['route'] = route.kind;
     if (route.kind === 'home') {
       titleEl.textContent = browseName ?? HOME_TITLE;
-      statusEl.textContent = browseName === null ? HOME_STATUS : ENTRY_STATUS;
+      // Only the landing page has a second line — the tagline. Browsing a card, the card's name is all
+      // there is to say.
+      statusEl.textContent = browseName === null ? HOME_STATUS : '';
+      applyStatusFlag();
       document.title = HOME_DOCUMENT_TITLE;
       return;
     }
     titleEl.textContent = gameName;
-    statusEl.textContent = ENTRY_STATUS;
+    statusEl.textContent = '';
+    applyStatusFlag();
     document.title =
       gameDocumentTitle === null
         ? ENTRY_DOCUMENT_TITLE
