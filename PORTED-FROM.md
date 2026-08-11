@@ -59,7 +59,11 @@ and why a public web page cannot.
   status strings, the phase names and the busy visuals are the launcher's; the durations are constants.
   A session survives moving around the site, as the launcher's survives flipping through the strip, but
   not a reload — there is nothing here to outlive the page. What the launcher does that this cannot: its
-  Play during `running` returns you to the game, so here that press is a no-op.
+  Play during `running` returns you to the game, so here that press is a no-op. While a session holds it,
+  every OTHER entry loses its Play entirely (`data-layout='no-play'`, and it leaves the focus ring with
+  it) — the launcher says the same thing in its own terms: "you can browse game B while game A is busy,
+  B is not actionable". It only un-focuses the button there and hides it for a history game; with no
+  history/card split here, hiding it is the honest version.
   In the carousel Play has a second job, the same one as in the launcher: it is the selected card's
   invisible geometric stand-in for the morph.
 - **A finished session is booked against the entry**, the way StatsService books a real one: +1 launch,
@@ -84,11 +88,14 @@ and why a public web page cannot.
   stays visible while you browse something else.
 - **`artRev` is not ported.** The launcher re-decodes a cover when Configure rewrites it; here covers are
   URLs and the browser handles staleness.
-- **The NAME is the upper bar line, not the lower one.** The state machine is the launcher's
-  (`#app[data-status='shown']`: no second line, no move), but the two lines are the other way round —
-  there `.status` reports transient work over a name that is always on screen, so the news goes on top;
-  here the only second line is the product's tagline under the product's name. An entry screen and the
-  carousel have no status at all: the card's own name is the whole bar copy.
+- **Both bar lines follow the launcher, order included**: the status on top, the name dropping below it
+  once there is a status to show (`#app[data-status='shown']`). The one place it costs something is the
+  landing page, whose tagline therefore sits above "Playhook" — the price of a single rule on every
+  screen. Outside a session there is no status at all: the entry's name is the whole bar copy.
+- **Force close is bound to the entry it would close.** The launcher's `applyMenuKill` goes by state
+  alone; it has one card and no per-entry screens to confuse (and clears the item on its empty screen
+  separately). Here every entry has a screen of its own, so the item shows only on the running entry's —
+  never on the landing page, never over a different entry, where it would read as closing THAT one.
 - **The bar text is not cut on navigation.** The launcher adds `.is-swapping` while the browse answer is
   in flight; here the entry is already in hand and there is no stale-text window to cover.
 - **Catalogue order is alphabetical by title**, fixed by the feed generator — not a play history.

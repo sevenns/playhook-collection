@@ -744,10 +744,9 @@ html.kbd-focus .play-button:focus-visible {
    varies is the left slot: `left: 124` (play 92 + gap 32) wherever Play is on screen, `left: 0` on the
    bare landing page.
 
-   ORDER: the NAME is the upper line and the status sits under it. The launcher inverts that in 0.7.0 —
-   there `.status` reports transient work ("Installing… 42%") over a name that is always on screen, so
-   the news belongs on top. Here the second line is the product's tagline under the product's name, and
-   putting the tagline above it would read as the tagline being the heading. */
+   ORDER: the STATUS is the upper line and the name drops below it, as in the launcher — the second line
+   reports what is happening ("Running...", "Saving progress...") over a name that is always there, and
+   news belongs on top. The landing page pays for the single rule: its tagline sits above "Playhook". */
 
 .title {
   position: absolute;
@@ -761,8 +760,8 @@ html.kbd-focus .play-button:focus-visible {
   font-size: calc(32 * var(--px));
   line-height: calc(48 * var(--px));
   color: var(--fg);
-  /* One transform, composed from two independent offsets: --title-y lifts the name once a status forms a
-     second line under it (see the rule below), --text-lift / --title-x are the carousel shift. A second
+  /* One transform, composed from two independent offsets: --title-y drops the name once a status forms a
+     line above it (see the rule below), --text-lift / --title-x are the carousel shift. A second
      `transform` rule would silently override the first, so every mover writes its own variable instead. */
   transform: translate(var(--title-x, 0px), calc(var(--title-y, 0px) - var(--text-lift, 0px)));
   /* `left` is animated too: it moves between the Play-less slot (x=0) and the normal one (x=124), and
@@ -786,10 +785,10 @@ html.kbd-focus .play-button:focus-visible {
   font-size: calc(24 * var(--px));
   line-height: calc(36 * var(--px));
   color: var(--fg);
-  /* Pre-positioned BELOW center so it forms the second line under the lifted title. --status-x and
+  /* Pre-positioned ABOVE center so it forms the first line over the lowered name. --status-x and
      --text-lift are the carousel's horizontal and vertical shifts, exactly as on .title — the two lines
      move as ONE block. */
-  transform: translate(var(--status-x, 0px), calc(18 * var(--px) - var(--text-lift, 0px)));
+  transform: translate(var(--status-x, 0px), calc(-18 * var(--px) - var(--text-lift, 0px)));
   opacity: 0;
   transition:
     opacity 0.3s ease,
@@ -797,10 +796,10 @@ html.kbd-focus .play-button:focus-visible {
     left 0.35s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* A second line on screen: the name lifts so the status can fade in BELOW it. The status fades in
+/* A second line on screen: the name drops so the status can fade in ABOVE it. The status fades in
    TOGETHER with the name's move — no delay: sequencing them made the line look like it was lagging. */
 #app[data-status='shown'] .title {
-  --title-y: calc(-18 * var(--px));
+  --title-y: calc(18 * var(--px));
 }
 #app[data-status='shown'] .status {
   opacity: 1;
@@ -830,6 +829,17 @@ html.kbd-focus .play-button:focus-visible {
 #app[data-screen='carousel'] .title,
 #app[data-screen='carousel'] .status {
   left: calc(124 * var(--px));
+}
+
+/* no-play layout: the entry on screen cannot be launched — another session already holds the one Play
+   there is — so the button goes and the text moves into the empty left slot. The launcher does the same
+   for a game it cannot act on (`#app[data-layout='no-play']`); see controls.ts for when it is set. */
+#app[data-layout='no-play'] .play-button {
+  display: none;
+}
+#app[data-layout='no-play'] .title,
+#app[data-layout='no-play'] .status {
+  left: 0;
 }
 
 /* ── Popup (the menu) ───────────────────────────────────────────────────────
@@ -1071,15 +1081,15 @@ html:not(.cursor-hidden) .text-button:hover,
   #app[data-route='home'] .status {
     left: auto;
   }
-  /* The name is the UPPER line on the desktop layout, so it must come first here too — the markup puts
-     #status first, and the two raster orders disagreeing is a bug, not a missing adaptation. */
-  .title {
-    order: 1;
-  }
+  /* The status is the UPPER line on the desktop layout, so it must come first here too — which is also
+     the markup order. The two raster orders disagreeing is a bug, not a missing adaptation. */
   .status {
-    order: 2;
+    order: 1;
     /* Wrap instead of running off the edge — this line is the widest thing in the bar. */
     white-space: normal;
+  }
+  .title {
+    order: 2;
   }
 
   .popup-column {

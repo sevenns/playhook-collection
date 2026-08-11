@@ -79,6 +79,7 @@ export interface Controls {
 export function createControls(deps: ControlsDeps): Controls {
   const { audio, router, carousel, session } = deps;
 
+  const app = req('app');
   const playButton = req<HTMLButtonElement>('play-button');
   const moreButton = req<HTMLButtonElement>('more-button');
   const popup = req('popup');
@@ -168,11 +169,29 @@ export function createControls(deps: ControlsDeps): Controls {
 
   /**
    * Force close is offered while a session is RUNNING and a close is not already in flight — during
-   * `killing` / `syncing-out` the status already says so and the item would be a no-op. The launcher's
-   * rule, verbatim.
+   * `killing` / `syncing-out` the status already says so and the item would be a no-op. That much is the
+   * launcher's rule verbatim; what it adds is the SCREEN: the item belongs to the entry it would close,
+   * so it shows only on that entry's own screen, never on the landing page and never over another entry.
+   * (The launcher's own applyMenuKill goes by state alone — it has one card and no per-entry screens to
+   * confuse, and its empty screen clears the item separately.)
    */
   function killVisible(): boolean {
-    return session.current()?.phase === 'running';
+    const active = session.current();
+    if (active === null || active.phase !== 'running') return false;
+    const route = router.current();
+    return route.kind === 'game' && route.slug === active.slug;
+  }
+
+  /**
+   * Whether the entry on screen can be launched: there must be one, and no other session may be holding
+   * the Play the bar offers. The launcher's `screenIsActionable` says the same thing in its own terms —
+   * "you can browse game B while game A is busy, B is not actionable" — and drops Play for it.
+   */
+  function playable(): boolean {
+    const route = router.current();
+    if (route.kind !== 'game') return false;
+    const active = session.current();
+    return active === null || active.slug === route.slug;
   }
 
   function applyMenuLibrary(): void {
@@ -370,9 +389,9 @@ export function createControls(deps: ControlsDeps): Controls {
   // ── Bar focus (horizontal) ───────────────────────────────────────────────────
 
   function barFocusables(): readonly HTMLButtonElement[] {
-    // Play only exists on an entry screen — the landing page is the launcher's idle screen, and the
-    // launcher hides Play there.
-    return router.current().kind === 'game' ? [playButton, moreButton] : [moreButton];
+    // Play only exists where it can act: on an entry screen (the landing page is the launcher's idle
+    // screen, and the launcher hides Play there) whose entry is not locked out by another session.
+    return playable() ? [playButton, moreButton] : [moreButton];
   }
 
   /**
@@ -385,6 +404,10 @@ export function createControls(deps: ControlsDeps): Controls {
   }
 
   function applyFocus(): void {
+    // The layout follows the same rule as the focus ring, so a hidden Play can never hold the highlight.
+    // Only on an entry screen: on the landing page Play is already gone and the text already at x=0.
+    if (router.current().kind === 'game' && !playable()) app.dataset['layout'] = 'no-play';
+    else delete app.dataset['layout'];
     const items = barFocusables();
     focusIndex = Math.min(items.length - 1, Math.max(0, focusIndex));
     const active = focusActive() && focusRevealed;
@@ -738,6 +761,7 @@ export function createControls(deps: ControlsDeps): Controls {
       applyMenuLibrary();
       applyInfoPanel();
       restoreFocus(previous, false);
+      applyFocus(); // Play comes and goes with the session — so does the no-play layout
     },
 
     start: (): void => gamepad.start(),
