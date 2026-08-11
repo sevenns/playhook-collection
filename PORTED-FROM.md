@@ -53,21 +53,22 @@ and why a public web page cannot.
   In the launcher it is the top-level screen with the bar screen below it; here the landing page is the
   top level, so `data-screen` gains a third value that carries no attribute at all. It also means B on
   the strip is a real step back — in the launcher it does nothing there.
-- **Collection stays a menu item.** It no longer opens a list, but removing it would leave the catalogue
-  reachable only by typing `#/collection`: nothing else calls `setCollectionVisible(true)`.
-- **`#more-button` is NOT hidden in the carousel.** The launcher hides it (`styles.css`) because More is
-  one of several ways into its menus; here it is the only one, and hiding it would leave a mouse user
-  with no menu at all. It simply cannot hold the bar highlight while the strip is up.
+- **Library is the only door to the carousel**, in and out — the launcher's item only leads back, because
+  there the strip is where you start. There is no separate Collection item; `#/collection` is still the
+  hash, written with replaceState from the landing page and pushed when leaving an entry.
+- **The bar keeps a vertical gradient below 900px/600px.** The launcher's radial "pool" is measured
+  against a 400-tall bar; in the mobile flow layout the box is only as tall as its copy, so most of the
+  fill would land outside it and leave the text on bare hero. The launcher has no such layout.
 - **The card dot is ported in its "no dot" state.** `.card-dot` and its rules are here so a re-port shows
   no diff, but `.shows-dot` / `.is-busy` mean "on the inserted card" and "installing", and a showcase has
   neither.
 - **`artRev` is not ported.** The launcher re-decodes a cover when Configure rewrites it; here covers are
   URLs and the browser handles staleness.
-- **The title/status swap is unconditional**, on every screen including the landing page. The launcher
-  keys it on `#app[data-status='shown']`, which here would mean introducing a "the status is empty" state
-  — and it already exists, on every cold load of an entry while the feed is in flight, so the heading
-  would hop each time. The visible cost is that the tagline sits ABOVE the product name on the landing
-  page. Accepted deliberately.
+- **Both bar lines are always on screen, and the NAME is the upper one.** The launcher shows the status
+  only when there is one (`#app[data-status='shown']`) and drops the name below it, because its status
+  reports transient work over a name that is always there. Here the second line is a constant caption
+  ("Playhook - Collection") and the state would be "the feed has not landed yet" — which happens on every
+  cold load, so the heading would hop each time. Written unconditionally instead, name on top.
 - **The bar text is not cut on navigation.** The launcher adds `.is-swapping` while the browse answer is
   in flight; here the entry is already in hand and there is no stale-text window to cover.
 - **Catalogue order is alphabetical by title**, fixed by the feed generator — not a play history.

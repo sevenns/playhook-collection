@@ -76,26 +76,15 @@ export function createControls(deps: ControlsDeps): Controls {
   const popupVeil = reqQuery<HTMLElement>('#popup .popup-veil');
   const menuGithub = req<HTMLAnchorElement>('menu-github');
   const menuLibrary = req<HTMLButtonElement>('menu-library');
-  const menuCollection = req<HTMLButtonElement>('menu-collection');
   const menuClose = req<HTMLButtonElement>('menu-close');
 
   const ALL_BAR_BUTTONS: readonly HTMLButtonElement[] = [playButton, moreButton];
 
   const githubItem: StackItem = { kind: 'button', visual: menuGithub, focusTarget: menuGithub };
   const libraryItem: StackItem = { kind: 'button', visual: menuLibrary, focusTarget: menuLibrary };
-  const collectionItem: StackItem = {
-    kind: 'button',
-    visual: menuCollection,
-    focusTarget: menuCollection,
-  };
   const closeItem: StackItem = { kind: 'button', visual: menuClose, focusTarget: menuClose };
 
-  const ALL_STATIC_ITEMS: readonly StackItem[] = [
-    githubItem,
-    libraryItem,
-    collectionItem,
-    closeItem,
-  ];
+  const ALL_STATIC_ITEMS: readonly StackItem[] = [githubItem, libraryItem, closeItem];
 
   let popupView: PopupView = 'none';
   let stackIndex = 0;
@@ -144,9 +133,13 @@ export function createControls(deps: ControlsDeps): Controls {
 
   // ── The popup's focus stack ──────────────────────────────────────────────────
 
-  /** Library is the mouse's way back to the strip; it only exists where B would also work. */
+  /**
+   * Library is the only door to the carousel — in, from the landing page, and back, from an entry. It
+   * hides only where there is nothing behind it: a catalogue too short to flip through. (The menu never
+   * opens over the strip itself, so "already there" is not a case.)
+   */
   function libraryVisible(): boolean {
-    return router.current().kind === 'game' && carousel.exists();
+    return carousel.exists();
   }
 
   function applyMenuLibrary(): void {
@@ -155,9 +148,7 @@ export function createControls(deps: ControlsDeps): Controls {
 
   function stackItems(): readonly StackItem[] {
     if (popupView !== 'details') return [];
-    return libraryVisible()
-      ? [githubItem, libraryItem, collectionItem, closeItem]
-      : [githubItem, collectionItem, closeItem];
+    return libraryVisible() ? [githubItem, libraryItem, closeItem] : [githubItem, closeItem];
   }
 
   function applyStackFocus(moveDomFocus = false): void {
@@ -239,10 +230,15 @@ export function createControls(deps: ControlsDeps): Controls {
     focusQuietly(moreButton); // `inert` would otherwise strand focus on <body>
   }
 
-  /** Collection: the carousel over the landing page. `#/collection` is a hash the router owns. */
+  /**
+   * Library: to the carousel. From an entry that is a step BACK to a different place, so it pushes a
+   * history entry; from the landing page the strip is a layer over where you already are, so the hash is
+   * replaced instead — the same distinction `back()` relies on.
+   */
   function openCarousel(): void {
     closePopup();
-    router.showCollection();
+    if (router.current().kind === 'game') router.goCollection();
+    else router.showCollection();
   }
 
   // Back is a stack, not a single step: the menu closes, then the carousel steps back to the bare landing
@@ -277,9 +273,8 @@ export function createControls(deps: ControlsDeps): Controls {
 
   /**
    * The bar highlight is meaningful everywhere the popup is closed EXCEPT on the carousel: there the
-   * selection lives in the strip, and left/right belong to it. Unlike the launcher the More button stays
-   * VISIBLE on the strip — it is the site's only way into the menu, and a mouse user with it hidden would
-   * have none — it simply cannot hold the highlight.
+   * selection lives in the strip, left/right belong to it, and the bar buttons are hidden anyway (Play is
+   * the card's stand-in, More is faded out — see styles.css), so the highlight has nothing to sit on.
    */
   function focusActive(): boolean {
     return popupView === 'none' && carousel.screen() !== 'carousel';
@@ -355,14 +350,8 @@ export function createControls(deps: ControlsDeps): Controls {
       return;
     }
     if (item === libraryItem) {
-      // Non-destructive, so no confirm: close the popup and hand control back to the strip.
-      audio.play('back');
-      closePopup();
-      router.goCollection();
-      return;
-    }
-    if (item === collectionItem) {
-      audio.play('button');
+      // Leaving an entry for the strip is a step back; opening the strip from the landing page is not.
+      audio.play(router.current().kind === 'game' ? 'back' : 'button');
       openCarousel();
       return;
     }

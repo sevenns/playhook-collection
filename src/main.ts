@@ -39,7 +39,7 @@ let heroParallax = 0;
 
 /** Everything the entry on screen owns: the bar copy, the hero images and the music. */
 function applyEntry(entry: CollectionEntry, onCarousel: boolean): void {
-  if (onCarousel) router.setHomeCopy(entry.title, '');
+  if (onCarousel) router.setBrowseCopy(entry.title);
   else router.setGameCopy(entry.title, entry.title);
   hero.showGame(entry.slug, entry.heroUrls);
   audio.setGameMusic(entry.music);
@@ -103,7 +103,7 @@ function applyRoute(route: Route): void {
 
   if (!wantsCollection) {
     carousel.setScreen('home');
-    router.setHomeCopy(null, null);
+    router.setBrowseCopy(null);
     heroParallax = 0;
     hero.setParallax(0);
     applyNothing();
@@ -115,7 +115,7 @@ function applyRoute(route: Route): void {
   if (selected === undefined) {
     // Refused: fewer than two entries to flip through — the feed is still in flight, or it failed. The
     // landing page stays as it is; an outright failure at least says so where the entry name would be.
-    router.setHomeCopy(null, feedState === 'error' ? FEED_ERROR_STATUS : null);
+    router.setBrowseCopy(feedState === 'error' ? FEED_ERROR_STATUS : null);
     applyNothing();
     return;
   }

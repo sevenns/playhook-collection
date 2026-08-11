@@ -18,25 +18,27 @@ export type Route = { readonly kind: 'home' } | { readonly kind: 'game'; readonl
 const HOME_TITLE = 'Playhook';
 const HOME_STATUS = 'Bring console vibes to your PC';
 const HOME_DOCUMENT_TITLE = 'Playhook - bring console vibes to your PC';
-/** The bar's bold line on a game screen — the product, with the game name as the status below it. */
-const GAME_TITLE = 'Playhook - Collection';
+/** The caption under an entry's name, on the carousel and on its own screen alike. */
+const ENTRY_STATUS = 'Playhook - Collection';
+/** What goes in the tab before the entry's name. */
+const ENTRY_DOCUMENT_TITLE = 'Playhook - Collection';
 
 export interface Router {
   current(): Route;
   /** Navigates by writing the hash; the hashchange listener does the rendering (one code path). */
   go(route: Route): void;
   /**
-   * The game screen's second line: the entry's title once the feed resolves the slug, a load state
-   * until then. `documentTitle` is what goes after "Playhook - Collection -" in the tab, or null to
-   * leave the tab at the bare screen name (loading / an error is not a page title).
+   * The entry screen's bold line: the entry's name once the feed resolves the slug, a load state until
+   * then. `documentTitle` is what goes after "Playhook - Collection -" in the tab, or null to leave the
+   * tab at the bare screen name (loading / an error is not a page title).
    */
-  setGameCopy(status: string, documentTitle: string | null): void;
+  setGameCopy(name: string, documentTitle: string | null): void;
   /**
-   * The landing page's two lines while the carousel is up: the selected entry's name in place of
-   * "Playhook", and whatever belongs under it. Either `null` restores that line's default — which is what
-   * closing the carousel does.
+   * The landing page's two lines while the carousel is browsing: the selected entry's name in place of
+   * "Playhook", with the same caption under it that its own screen carries. `null` restores the landing
+   * page's own copy — which is what closing the carousel does.
    */
-  setHomeCopy(title: string | null, status: string | null): void;
+  setBrowseCopy(name: string | null): void;
   /** Opens or closes the carousel over the landing page (replaceState — it is a toggle, not a place). */
   setCollectionVisible(visible: boolean): void;
   /** Sends the user to the catalogue with the carousel up. Where an unknown slug lands — and it REPLACES
@@ -90,12 +92,11 @@ export function createRouter(): Router {
   const initial = parse(window.location.hash);
   let route: Route = initial.route;
   let wantsCollection = initial.wantsCollection;
-  // The game screen's status line, owned by whoever resolves the slug against the feed.
-  let gameStatus = '';
+  // The entry screen's name line, owned by whoever resolves the slug against the feed.
+  let gameName = '';
   let gameDocumentTitle: string | null = null;
-  // The landing page's two lines while the carousel is browsing an entry; null = the default copy.
-  let homeTitle: string | null = null;
-  let homeStatus: string | null = null;
+  // The name the carousel is browsing over the landing page; null = the landing page's own copy.
+  let browseName: string | null = null;
   // Set once start() has run, so the toggles below can re-render through the same path a hashchange takes.
   let notify: ((route: Route, collection: boolean) => void) | null = null;
   // Whether this session has pushed a history entry of its own. Without one, history.back() would leave
@@ -105,15 +106,17 @@ export function createRouter(): Router {
   function render(): void {
     app.dataset['route'] = route.kind;
     if (route.kind === 'home') {
-      titleEl.textContent = homeTitle ?? HOME_TITLE;
-      statusEl.textContent = homeStatus ?? HOME_STATUS;
+      titleEl.textContent = browseName ?? HOME_TITLE;
+      statusEl.textContent = browseName === null ? HOME_STATUS : ENTRY_STATUS;
       document.title = HOME_DOCUMENT_TITLE;
       return;
     }
-    titleEl.textContent = GAME_TITLE;
-    statusEl.textContent = gameStatus;
+    titleEl.textContent = gameName;
+    statusEl.textContent = ENTRY_STATUS;
     document.title =
-      gameDocumentTitle === null ? GAME_TITLE : `${GAME_TITLE} - ${gameDocumentTitle}`;
+      gameDocumentTitle === null
+        ? ENTRY_DOCUMENT_TITLE
+        : `${ENTRY_DOCUMENT_TITLE} - ${gameDocumentTitle}`;
   }
 
   return {
@@ -125,15 +128,14 @@ export function createRouter(): Router {
       window.location.hash = hashOf(next);
     },
 
-    setGameCopy(status: string, documentTitle: string | null): void {
-      gameStatus = status;
+    setGameCopy(name: string, documentTitle: string | null): void {
+      gameName = name;
       gameDocumentTitle = documentTitle;
       if (route.kind === 'game') render();
     },
 
-    setHomeCopy(title: string | null, status: string | null): void {
-      homeTitle = title;
-      homeStatus = status;
+    setBrowseCopy(name: string | null): void {
+      browseName = name;
       if (route.kind === 'home') render();
     },
 
@@ -174,10 +176,9 @@ export function createRouter(): Router {
         if (sameRoute(next.route, route) && next.wantsCollection === wantsCollection) return;
         route = next.route;
         wantsCollection = next.wantsCollection;
-        gameStatus = '';
+        gameName = '';
         gameDocumentTitle = null;
-        homeTitle = null;
-        homeStatus = null;
+        browseName = null;
         render();
         onChange(route, wantsCollection);
       });

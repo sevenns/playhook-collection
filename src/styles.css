@@ -47,6 +47,22 @@
     U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
+/* The two palette colors are declared as TYPED custom properties so they can be TRANSITIONED: a plain
+   `--d1` is just a token and jumps instantly, which made the bar, the buttons and the popup snap to the
+   new entry's colors while the hero image was still cross-fading. With a `<color>` syntax the browser
+   interpolates them, and every surface built on var(--d1)/var(--d2) follows the background smoothly.
+   The initial values repeat :root's — keep the two in step if the wallpaper is ever replaced. */
+@property --d1 {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgb(12, 10, 27);
+}
+@property --d2 {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: rgb(131, 111, 149);
+}
+
 :root {
   /* One design pixel (mockup is 1920x1080). BROWSER: the launcher pins this to vh alone — safe there,
      since its window is always fullscreen 16:9 or wider. A browser window can be any shape, and a
@@ -62,6 +78,7 @@
      nothing shifts. Recompute them if the wallpaper is ever replaced. */
   --d1: rgb(12, 10, 27);
   --d2: rgb(131, 111, 149);
+  /* Text colour OUTSIDE the app shell (there is none in practice — see the #app override below). */
   --fg: #f0f0f0;
 }
 
@@ -103,6 +120,16 @@ body {
   height: 100dvh;
   background-color: var(--bg);
   overflow: hidden;
+  /* All UI text takes the hero's accent colour: the title, the status and the popup copy read as part of
+     the entry on screen rather than as a white overlay on top of it. Derived HERE, not in :root, because
+     --d2 is set on this element — resolving it one level up would freeze the fallback. Every text rule
+     keeps using var(--fg), so this single line is also the whole way back. */
+  --fg: var(--d2);
+  /* Palette crossfade, matched to the hero layers' own 1s opacity fade (see .hero-layer) so the colors
+     and the image arrive together. hero.ts sets --d1/--d2 on this element. */
+  transition:
+    --d1 1s ease,
+    --d2 1s ease;
   /* Establish a stacking context so the z-index:-1 hero paints ABOVE #app's own background-color
      (otherwise the opaque bg covers it → black screen) but below the UI. */
   isolation: isolate;
@@ -391,21 +418,58 @@ body {
   left: 0;
   right: 0;
   bottom: 0;
-  height: calc(300 * var(--px));
-  /* Vertical gradient of d1: transparent at top → 0.75 → solid at bottom (mockup stops). */
-  background: linear-gradient(
-    to top,
+  /* 400 design px, straight off the mockup's "BackgroundBlur" — a shorter overlay ends mid-card and the
+     strip loses the dark base it is meant to sit on. */
+  height: calc(400 * var(--px));
+  /* The mockup's "BackgroundBlur" is no longer a full-width band but a POOL in the bottom-left corner
+     (Figma node 222:1484 — its linear fill is switched off there, the radial one is what is drawn). The
+     mockup's own centre is 439/1009 of the 1920x1080 grid with radii 711 x 290; the centre is pinned to
+     the left EDGE instead, so the corner is at full strength rather than on the falling side of the
+     curve, and stretched to 1350 wide so it reaches further across the bar. Vertically it is unchanged:
+     1009 is 329 from the top of this 400-tall element, and the pool's bottom half falls off the screen. */
+  --pool-x: 0px;
+  --pool-y: calc(329 * var(--px));
+  --pool-rx: calc(1350 * var(--px));
+  --pool-ry: calc(290 * var(--px));
+  /* d1 at the centre → 0.75 at 42% → gone at the rim (the mockup's three stops). NO mask on this element:
+     a mask multiplies the fill as well as the backdrop, which halved the corner the mockup deliberately
+     drags off-screen to keep filled — AND, since .bar-content is a child, it faded the bar text along
+     with it, which is what made a carousel title (lifted 130 px into the falling edge) look washed out.
+     The blur wears its own mask instead — see ::before. */
+  background: radial-gradient(
+    var(--pool-rx) var(--pool-ry) at var(--pool-x) var(--pool-y),
     var(--d1) 0%,
-    color-mix(in srgb, var(--d1) 75%, transparent) 58%,
+    color-mix(in srgb, var(--d1) 75%, transparent) 42%,
     transparent 100%
   );
-  /* BROWSER: the launcher only writes the unprefixed property (Chromium is all it targets). Safari did
-     not ship it unprefixed until 18, and this page is public. */
+  transition: opacity 0.3s ease;
+}
+
+/* The blur, as its own layer so it can be masked to the pool's shape without touching the fill above.
+   Masking the bar itself would be simpler, but it would take the fill (and the text) down with it;
+   leaving the blur unmasked would stand a blurred full-width band out to the right of the pool, where
+   nothing is dimmed.
+   BROWSER: the launcher only writes the unprefixed properties (Chromium is all it targets). Safari did
+   not ship backdrop-filter unprefixed until 18, and this page is public. */
+#bottom-bar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
   -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
-  -webkit-mask-image: linear-gradient(to top, #000 0%, #000 55%, transparent 100%);
-  mask-image: linear-gradient(to top, #000 0%, #000 55%, transparent 100%);
-  transition: opacity 0.3s ease;
+  -webkit-mask-image: radial-gradient(
+    var(--pool-rx) var(--pool-ry) at var(--pool-x) var(--pool-y),
+    #000 0%,
+    #000 45%,
+    transparent 100%
+  );
+  mask-image: radial-gradient(
+    var(--pool-rx) var(--pool-ry) at var(--pool-x) var(--pool-y),
+    #000 0%,
+    #000 45%,
+    transparent 100%
+  );
+  pointer-events: none;
 }
 
 .bar-content {
@@ -627,6 +691,13 @@ html.kbd-focus .play-button:focus-visible {
   pointer-events: none;
 }
 
+/* The carousel is a pure browsing surface, as in the launcher: no menu over it. The menu is one step
+   away — B / Esc / Backspace steps back to the landing page, where More is waiting. */
+#app[data-screen='carousel'] #more-button {
+  opacity: 0;
+  pointer-events: none;
+}
+
 /* ── Title & status ───────────────────────────────────────────────────────
    BROWSER: in the launcher these two are state-driven — the title only drops and the status only fades
    in while there is a status to show (`#app[data-status='shown']`), and both slide back on the idle
@@ -636,9 +707,10 @@ html.kbd-focus .play-button:focus-visible {
    in flight — and the heading would hop each time. What DOES vary is the left slot: `left: 124`
    (play 92 + gap 32) wherever Play is on screen, `left: 0` on the bare landing page.
 
-   NOTE the order the launcher settled on in 0.7.0: the STATUS is the upper line and the title drops
-   below it, which is why #status comes first in the markup. On the landing page that puts the tagline
-   above the product name — accepted deliberately, so one rule holds on every screen. */
+   ORDER: the NAME is the upper line and the status sits under it. The launcher inverts that in 0.7.0 —
+   there `.status` reports transient work ("Installing… 42%") over a name that is always on screen, so
+   the news belongs on top. Here the second line is a constant caption ("Playhook - Collection"), and
+   burying the entry's name under it would read as the caption being the heading. */
 
 .title {
   position: absolute;
@@ -652,10 +724,10 @@ html.kbd-focus .play-button:focus-visible {
   font-size: calc(32 * var(--px));
   line-height: calc(48 * var(--px));
   color: var(--fg);
-  /* One transform, composed from two independent offsets: --title-y is the two-line drop (fixed here,
-     state-driven in the launcher), --text-lift / --title-x the carousel shift. A second `transform`
-     rule would silently override the first, so every mover writes its own variable instead. */
-  --title-y: calc(18 * var(--px));
+  /* One transform, composed from two independent offsets: --title-y lifts the name so the status forms a
+     second line under it, --text-lift / --title-x are the carousel shift. A second `transform` rule
+     would silently override the first, so every mover writes its own variable instead. */
+  --title-y: calc(-18 * var(--px));
   transform: translate(var(--title-x, 0px), calc(var(--title-y, 0px) - var(--text-lift, 0px)));
   /* `left` is animated too: it moves between the Play-less slot (x=0) and the normal one (x=124), and
      an un-animated jump there is exactly what makes the name "hop" when the carousel opens. */
@@ -678,10 +750,10 @@ html.kbd-focus .play-button:focus-visible {
   font-size: calc(24 * var(--px));
   line-height: calc(36 * var(--px));
   color: var(--fg);
-  /* Pre-positioned ABOVE center so it forms the first line over the lowered title. --status-x/--text-lift
-     are the carousel's horizontal and vertical shifts, exactly as on .title — the two lines move as ONE
-     block. */
-  transform: translate(var(--status-x, 0px), calc(-18 * var(--px) - var(--text-lift, 0px)));
+  /* Pre-positioned BELOW center so it forms the second line under the lifted title. --status-x and
+     --text-lift are the carousel's horizontal and vertical shifts, exactly as on .title — the two lines
+     move as ONE block. */
+  transform: translate(var(--status-x, 0px), calc(18 * var(--px) - var(--text-lift, 0px)));
   opacity: 1;
   transition:
     opacity 0.3s ease,
@@ -862,6 +934,19 @@ html:not(.cursor-hidden) .text-button:hover,
   #bottom-bar {
     height: auto;
     padding-top: calc(120 * var(--px));
+    /* The pool's geometry is measured against the 400-tall desktop bar; in flow layout this box is only
+       as tall as the copy needs, so most of the radial fill would fall outside it and leave the text on
+       bare hero. Back to a vertical band here, which works at any height. */
+    background: linear-gradient(
+      to top,
+      var(--d1) 0%,
+      color-mix(in srgb, var(--d1) 75%, transparent) 58%,
+      transparent 100%
+    );
+  }
+  #bottom-bar::before {
+    -webkit-mask-image: linear-gradient(to top, #000 0%, #000 55%, transparent 100%);
+    mask-image: linear-gradient(to top, #000 0%, #000 55%, transparent 100%);
   }
 
   .bar-content {
@@ -897,15 +982,15 @@ html:not(.cursor-hidden) .text-button:hover,
   #app[data-route='home'] .status {
     left: auto;
   }
-  /* The status is the UPPER line on the desktop layout (see the swap note there), so it must come first
-     here too — the two raster orders disagreeing is a bug, not a missing adaptation. */
-  .status {
+  /* The name is the UPPER line on the desktop layout, so it must come first here too — the markup puts
+     #status first, and the two raster orders disagreeing is a bug, not a missing adaptation. */
+  .title {
     order: 1;
+  }
+  .status {
+    order: 2;
     /* Wrap instead of running off the edge — this line is the widest thing in the bar. */
     white-space: normal;
-  }
-  .title {
-    order: 2;
   }
 
   .popup-column {

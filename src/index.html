@@ -103,13 +103,10 @@
               <a id="menu-github" class="text-button" href="https://github.com/sevenns/playhook"
                 >Github</a
               >
-              <!-- Back to the carousel — the mouse counterpart of the B button, shown only on an entry
-                   screen that has a carousel to return to (see controls.ts). -->
-              <button id="menu-library" class="text-button is-hidden" type="button">Library</button>
-              <!-- Collection opens the carousel over the landing page. It stays a menu item rather than
-                   becoming a route: `#/collection` is written with replaceState, and without this button
-                   the catalogue would be reachable only by typing that hash. -->
-              <button id="menu-collection" class="text-button" type="button">Collection</button>
+              <!-- Library: the one way into the carousel and the one way back to it. On the landing page
+                   it opens the strip, on an entry screen it returns to it — the mouse counterpart of the
+                   B button. Hidden only where there is no carousel to show (see controls.ts). -->
+              <button id="menu-library" class="text-button" type="button">Library</button>
               <button id="menu-close" class="text-button" type="button">Close</button>
             </div>
           </div>
