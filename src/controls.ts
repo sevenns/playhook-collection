@@ -39,8 +39,19 @@ const ENTRY_URL_PREFIX = 'https://github.com/sevenns/playhook-collection/tree/ma
 /** Which view the popup is showing; 'none' means it is closed. */
 type PopupView = 'none' | 'details' | 'confirm';
 
+/** Which action the confirm view is asking about (only meaningful while popupView === 'confirm'). */
+type ConfirmMode = 'kill' | 'forget';
+
 /** The launcher's own wording, kept verbatim — it is the one place the site can lose something. */
 const KILL_QUESTION = 'Force close the game? Unsaved progress may be lost.';
+
+/**
+ * …and the one question that CANNOT be the launcher's: there it reassures you that the saves and the
+ * playtime survive and the card brings the game back, which is true of a record on disk. Here the
+ * catalogue is a fetched feed, so the honest promise is the reload.
+ */
+const forgetQuestion = (title: string): string =>
+  `Remove "${title}" from the history? It comes back when you reload the page.`;
 
 /**
  * One entry in the popup's vertical focus stack. Two roles because they diverged for the search box the
@@ -61,6 +72,14 @@ export interface ControlsDeps {
   readonly carousel: Carousel;
   /** The pretend game session Play starts and Force close ends. */
   readonly session: SessionController;
+  /**
+   * Which entry the bar is describing right now — its own screen, or the card the strip stands on. Owned
+   * by main.ts (the session status line follows the same notion), passed in rather than recomputed here
+   * so the two can never drift apart.
+   */
+  readonly browsedSlug: () => string | null;
+  /** "Remove from history" was confirmed for this slug. The entries are main's, so the removal is too. */
+  readonly onForget: (slug: string) => void;
 }
 
 export interface Controls {
@@ -89,6 +108,7 @@ export function createControls(deps: ControlsDeps): Controls {
   const menuGithub = req<HTMLAnchorElement>('menu-github');
   const menuLibrary = req<HTMLButtonElement>('menu-library');
   const menuKill = req<HTMLButtonElement>('menu-kill');
+  const menuForget = req<HTMLButtonElement>('menu-forget');
   const menuClose = req<HTMLButtonElement>('menu-close');
   const confirmYes = req<HTMLButtonElement>('confirm-yes');
   const confirmNo = req<HTMLButtonElement>('confirm-no');
@@ -98,6 +118,7 @@ export function createControls(deps: ControlsDeps): Controls {
   const githubItem: StackItem = { kind: 'button', visual: menuGithub, focusTarget: menuGithub };
   const libraryItem: StackItem = { kind: 'button', visual: menuLibrary, focusTarget: menuLibrary };
   const killItem: StackItem = { kind: 'button', visual: menuKill, focusTarget: menuKill };
+  const forgetItem: StackItem = { kind: 'button', visual: menuForget, focusTarget: menuForget };
   const closeItem: StackItem = { kind: 'button', visual: menuClose, focusTarget: menuClose };
   const yesItem: StackItem = { kind: 'button', visual: confirmYes, focusTarget: confirmYes };
   const noItem: StackItem = { kind: 'button', visual: confirmNo, focusTarget: confirmNo };
@@ -106,12 +127,17 @@ export function createControls(deps: ControlsDeps): Controls {
     githubItem,
     libraryItem,
     killItem,
+    forgetItem,
     closeItem,
     yesItem,
     noItem,
   ];
 
   let popupView: PopupView = 'none';
+  /** What the open confirm is asking about. Meaningless while the view is not 'confirm'. */
+  let confirmMode: ConfirmMode = 'kill';
+  /** The entry an open removal question names — captured when it opens (see triggerStackItem). */
+  let forgetSlug: string | null = null;
   let stackIndex = 0;
   let focusIndex = 0;
   // Whether the bar's highlight is "awake". The idle timeout puts it to sleep so a page left alone stops
@@ -194,9 +220,24 @@ export function createControls(deps: ControlsDeps): Controls {
     return active === null || active.slug === route.slug;
   }
 
+  /**
+   * Remove from history belongs to ONE entry — the one the bar is describing — so it exists wherever that
+   * entry is on screen (its own screen and its card in the strip) and nowhere else. The launcher's second
+   * rule, "not for a game that is available right now", has no direct counterpart on a site where nothing
+   * is installed; what survives of it is that a RUNNING entry is not history either — removing the game
+   * you are playing would leave a session pointing at a card that no longer exists.
+   */
+  function forgetVisible(): boolean {
+    const slug = deps.browsedSlug();
+    if (slug === null) return false;
+    const active = session.current();
+    return active === null || active.slug !== slug;
+  }
+
   function applyMenuLibrary(): void {
     menuLibrary.classList.toggle('is-hidden', !libraryVisible());
     menuKill.classList.toggle('is-hidden', !killVisible());
+    menuForget.classList.toggle('is-hidden', !forgetVisible());
   }
 
   function stackItems(): readonly StackItem[] {
@@ -205,6 +246,7 @@ export function createControls(deps: ControlsDeps): Controls {
     const items = [githubItem];
     if (libraryVisible()) items.push(libraryItem);
     if (killVisible()) items.push(killItem);
+    if (forgetVisible()) items.push(forgetItem);
     items.push(closeItem);
     return items;
   }
@@ -327,8 +369,9 @@ export function createControls(deps: ControlsDeps): Controls {
   }
 
   /** The force-close question. One step deeper than Details, and B / No / the veil return there. */
-  function openConfirm(): void {
-    confirmMessage.textContent = KILL_QUESTION;
+  function openConfirm(mode: ConfirmMode, question: string): void {
+    confirmMode = mode;
+    confirmMessage.textContent = question;
     setView('confirm');
     focusStackBottom(); // default focus: No, the safe answer
     applyFocus();
@@ -444,12 +487,15 @@ export function createControls(deps: ControlsDeps): Controls {
 
   // ── Actions ──────────────────────────────────────────────────────────────────
 
+  const entryOf = (slug: string): CollectionEntry | undefined =>
+    collectionEntries.find((candidate) => candidate.slug === slug);
+
   function applyGithubHref(): void {
     const route = router.current();
     if (route.kind === 'game') {
       // The path comes from the feed, not from a template built here: a reshuffled collection/ would
       // otherwise rot every link silently.
-      const entry = collectionEntries.find((candidate) => candidate.slug === route.slug);
+      const entry = entryOf(route.slug);
       if (entry !== undefined) {
         menuGithub.href = `${ENTRY_URL_PREFIX}${entry.sourcePath}`;
         return;
@@ -492,13 +538,29 @@ export function createControls(deps: ControlsDeps): Controls {
     if (item === killItem) {
       // Destructive in the launcher (unsaved progress), so it asks first — same here, same wording.
       audio.play('button');
-      openConfirm();
+      openConfirm('kill', KILL_QUESTION);
+      return;
+    }
+    if (item === forgetItem) {
+      // The slug is captured with the question, not read again on Yes: the strip can move under an open
+      // popup (a nav key still reaches it), and the entry the question named is the only one Yes may drop.
+      const slug = deps.browsedSlug();
+      if (slug === null) return;
+      const title = entryOf(slug)?.title ?? slug;
+      audio.play('button');
+      forgetSlug = slug;
+      openConfirm('forget', forgetQuestion(title));
       return;
     }
     if (item === yesItem) {
       audio.play('button');
       closePopup();
-      session.requestKill();
+      if (confirmMode === 'kill') {
+        session.requestKill();
+        return;
+      }
+      if (forgetSlug !== null) deps.onForget(forgetSlug);
+      forgetSlug = null;
       return;
     }
     back(); // Close, or No
@@ -752,8 +814,9 @@ export function createControls(deps: ControlsDeps): Controls {
 
     onSession(): void {
       // The question outlives its answer if the session ends some other way — step back rather than
-      // leave a Yes that would now do nothing.
-      if (popupView === 'confirm' && !killVisible()) {
+      // leave a Yes that would now do nothing. Only the force-close question: the removal one is about
+      // the catalogue, which a session's phase has no say over.
+      if (popupView === 'confirm' && confirmMode === 'kill' && !killVisible()) {
         setView('details');
         focusStackBottom();
       }

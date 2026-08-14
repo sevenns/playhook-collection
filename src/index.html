@@ -126,11 +126,17 @@
               <!-- Force close: the only way out of a session. Shown while one is RUNNING and not
                    already closing down — exactly the launcher's rule (see controls.ts). -->
               <button id="menu-kill" class="text-button is-hidden" type="button">Force close</button>
+              <!-- Remove from history: drops the entry the bar is describing from the catalogue. In the
+                   launcher it deletes a record kept on disk; here the catalogue is a fetched feed, so the
+                   removal lasts until a reload (see controls.ts / PORTED-FROM.md). -->
+              <button id="menu-forget" class="text-button is-hidden" type="button">
+                Remove from history
+              </button>
               <button id="menu-close" class="text-button" type="button">Close</button>
             </div>
 
-            <!-- confirm: Yes/No for the force close. Default focus is the BOTTOM button, which is No —
-                 the safe answer, as in the launcher. -->
+            <!-- confirm: Yes/No for the force close and for removing an entry. Default focus is the
+                 BOTTOM button, which is No — the safe answer, as in the launcher. -->
             <div class="actions-group" data-group="confirm">
               <button id="confirm-yes" class="text-button" type="button">Yes</button>
               <button id="confirm-no" class="text-button" type="button">No</button>

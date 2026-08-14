@@ -85,7 +85,14 @@ const carousel = createCarousel({
   },
 });
 
-const controls = createControls({ audio, router, carousel, session });
+const controls = createControls({
+  audio,
+  router,
+  carousel,
+  session,
+  browsedSlug: () => browsedSlug(),
+  onForget: (slug) => forgetEntry(slug),
+});
 
 /** Which entry the bar is describing right now: its own screen, or the card the strip is standing on. */
 function browsedSlug(): string | null {
@@ -112,6 +119,26 @@ function applySession(): void {
 }
 
 session.subscribe(applySession);
+
+/**
+ * "Remove from history" (the More menu): drops one entry from the catalogue for THIS page view. The
+ * launcher deletes a record it keeps on disk and the game stays gone; the equivalent of that record here
+ * is the fetched feed held in memory, so the removal lasts until a reload re-fetches it — which is what
+ * the question promises, and why it is the one place the site cannot use the launcher's wording.
+ *
+ * Re-applying the route is what moves the screen, and it needs no special case for "was I on that
+ * entry's own screen or on its card": the slug is now unknown to applyRoute, which answers by showing
+ * the catalogue, while the strip has already clamped its selection onto a card that still exists.
+ */
+function forgetEntry(slug: string): void {
+  const remaining = entries.filter((entry) => entry.slug !== slug);
+  if (remaining.length === entries.length) return;
+  entries = remaining;
+  carousel.setEntries(entries);
+  controls.setCollection('ready', entries);
+  applyRoute(router.current());
+  applySession();
+}
 
 // Called on every route change AND again when the feed lands, because the two arrive in either order.
 function applyRoute(route: Route): void {
