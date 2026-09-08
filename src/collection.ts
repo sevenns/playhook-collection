@@ -12,6 +12,14 @@
 /** What the catalogue is currently able to show. `ready` still covers "the catalogue is empty". */
 export type ListState = 'loading' | 'ready' | 'error';
 
+/**
+ * Where an entry came from: published in this repository's collection, or made in the browser through
+ * the Library screen's "Add game". NOT a feed field — the parser stamps every entry it reads as
+ * `collection`, and library-grid.ts splits the two into the screen's sections. An added entry lives in
+ * memory only: reloading the page re-fetches the feed and it is gone (see the note in library-screen.ts).
+ */
+export type EntryOrigin = 'collection' | 'added';
+
 /** The platforms a manifest may claim (the launcher's own enum, `manifest.ts`). */
 export type Platform = 'windows' | 'mac' | 'linux';
 
@@ -25,6 +33,7 @@ export interface EntryDescription {
 export interface CollectionEntry {
   readonly slug: string;
   readonly title: string;
+  readonly origin: EntryOrigin;
   readonly steamAppId?: number;
   /** The date a human last verified the manifest (meta.json's verifiedAt) — not an mtime. */
   readonly updatedAt: string;
@@ -130,6 +139,7 @@ function parseEntry(raw: unknown): CollectionEntry | null {
   return {
     slug,
     title,
+    origin: 'collection',
     ...(typeof steamAppId === 'number' ? { steamAppId } : {}),
     updatedAt: asString(raw['updatedAt']) ?? '',
     sourcePath: asString(raw['sourcePath']) ?? `collection/${slug}`,

@@ -985,6 +985,9 @@ html.kbd-focus .play-button:focus-visible {
   position: absolute;
   inset: 0;
   pointer-events: none;
+  /* Above the carousel (which lifts itself over the bar) AND above a full-screen overlay (z-index 2),
+     which stays open underneath a confirm popup opened from it. */
+  z-index: 3;
 }
 
 .popup-veil {
@@ -1243,6 +1246,434 @@ html:not(.mouse-asleep) .text-button:hover,
 .text-button.is-focused {
   background: var(--d2);
   color: var(--d1);
+}
+
+/* ── Full-screen overlay: the Library ──────────────────────────────────────
+   Ported from playhook @ c26fae7 : the launcher builds three screens on this skeleton (Settings,
+   Customize, Library) and keys the shared half of the rules off the bare `#app[data-overlay]` attribute
+   so a new screen costs no second copy of them. The site has one screen so far and keeps that shape.
+
+   Not a carousel screen: the strip keeps its layout underneath, so returning lands exactly where the
+   user left. The hidden state is opacity + pointer-events + visibility + content-visibility, never
+   display:none — that keeps everything animatable and never collapses the carousel's measured layout. */
+
+.settings {
+  position: absolute;
+  inset: 0;
+  /* Below the popup (z-index 3): a confirm popup has to paint on top of a screen that stays open under it. */
+  z-index: 2;
+  opacity: 0;
+  pointer-events: none;
+  /* A closed screen is not merely transparent, it is OUT of the frame: `opacity: 0` alone leaves every
+     layer inside it (veil, grid of covers) composited and rastered. Both properties are transitioned so
+     the fade OUT still plays: they flip back at the end of it, never at its start. */
+  visibility: hidden;
+  content-visibility: hidden;
+  transition:
+    opacity 0.35s ease,
+    visibility 0.35s ease,
+    content-visibility 0.35s allow-discrete;
+}
+
+#app[data-overlay='library'] #library {
+  opacity: 1;
+  pointer-events: auto;
+  visibility: visible;
+  content-visibility: visible;
+}
+
+/* Veil in the popup's own language, but full-width: this screen is not a right-hand column.
+   NO backdrop-filter here, deliberately. A blur samples everything under it EVERY frame, and what is
+   under it is a full-screen hero running a perpetual pan animation. Instead the hero itself fades out
+   (see below) and the veil fills with flat --d1: one composited layer, no per-frame sampling. */
+.settings-veil {
+  position: absolute;
+  inset: 0;
+  background: var(--d1);
+  opacity: 0;
+  transition: opacity 0.35s ease;
+}
+
+/* The hero goes with it — faded out, and its pan animation PAUSED so nothing keeps painting behind a
+   screen that no longer shows it. Any overlay, hence the bare attribute. */
+#app[data-overlay] #hero {
+  opacity: 0;
+  visibility: hidden;
+}
+
+#app[data-overlay] .hero-layer {
+  animation-play-state: paused;
+}
+
+#hero {
+  transition:
+    transform var(--morph) var(--morph-ease),
+    opacity 0.35s ease,
+    visibility 0.35s ease;
+}
+
+/* The bar belongs to the screen underneath, and the strip with it: a grid of the same covers is what is
+   on screen now, and the row showing through it would be the same catalogue twice. */
+#app[data-overlay] #bottom-bar {
+  opacity: 0;
+  transform: translateY(calc(20 * var(--px)));
+  pointer-events: none;
+}
+
+#app[data-overlay] #carousel {
+  opacity: 0;
+  pointer-events: none;
+}
+
+#app[data-overlay='library'] #library .settings-veil {
+  opacity: 1;
+}
+
+/* The content column: full-height, inset like the popup column (50), a comfortable reading width. */
+.settings-column {
+  position: absolute;
+  left: calc(120 * var(--px));
+  right: calc(120 * var(--px));
+  top: calc(50 * var(--px));
+  bottom: calc(50 * var(--px));
+  display: flex;
+  flex-direction: column;
+  opacity: 0;
+  transform: translateY(calc(24 * var(--px)));
+  transition:
+    transform 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+#app[data-overlay='library'] #library .settings-column {
+  opacity: 1;
+  transform: none;
+}
+
+.settings-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: calc(16 * var(--px));
+  padding: calc(30 * var(--px)) calc(32 * var(--px)) calc(20 * var(--px));
+}
+
+.settings-title {
+  font-weight: 800;
+  font-size: calc(48 * var(--px));
+  line-height: calc(64 * var(--px));
+  color: var(--d2);
+  transition: color 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* The two columns: the section list on the left, the selected section's content on the right. */
+.settings-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  gap: calc(40 * var(--px));
+}
+
+/* The section column. Narrow and fixed: it is a table of contents, not a second form.
+   The padding is what puts the BUTTONS' edge under the screen title rather than their text: the filled
+   entry is the shape the eye tracks down the screen, so it is the shape that has to line up. */
+.settings-nav {
+  flex: 0 0 calc(380 * var(--px));
+  padding-left: calc(32 * var(--px));
+  display: flex;
+  flex-direction: column;
+  gap: calc(4 * var(--px));
+  overflow-y: auto;
+  scrollbar-width: none;
+  --fade-top: 0px;
+  --fade-bottom: 0px;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 var(--fade-top),
+    #000 calc(100% - var(--fade-bottom)),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 var(--fade-top),
+    #000 calc(100% - var(--fade-bottom)),
+    transparent 100%
+  );
+}
+
+.settings-nav::-webkit-scrollbar {
+  display: none;
+}
+
+.settings-nav-item {
+  flex: 0 0 auto;
+  min-height: calc(72 * var(--px));
+  display: flex;
+  align-items: center;
+  /* Inset from the button's own edge — that edge is what carries the alignment (see .settings-nav). */
+  padding: 0 calc(22 * var(--px));
+  border: none;
+  border-radius: calc(10 * var(--px));
+  background: transparent;
+  color: var(--d2);
+  font-family: inherit;
+  font-weight: 500;
+  font-size: calc(28 * var(--px));
+  text-align: left;
+  cursor: pointer;
+}
+
+/* :hover gated on a live cursor, like every other control here (see .text-button). */
+html:not(.mouse-asleep) .settings-nav-item:hover,
+.settings-nav-item.is-focused {
+  background: var(--d2);
+  color: var(--d1);
+}
+
+/* The section the pane is showing, while the focus is over in the pane: underlined rather than filled,
+   so "where I am" and "what has the focus" never claim the same highlight. */
+.settings-nav-item.is-current {
+  text-decoration: underline;
+  text-underline-offset: calc(8 * var(--px));
+}
+
+/* The actions that end the column, set apart from the sections above them. */
+.settings-nav-item[data-kind='action'] {
+  font-weight: 400;
+}
+
+.settings-nav-item[data-kind='section'] + .settings-nav-item[data-kind='action'] {
+  margin-top: calc(20 * var(--px));
+}
+
+.settings-nav-item.is-disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* The column arrives the way the popup's items do — one after another, top-down, which is the order they
+   are read in. Driven by a class rather than by the overlay state, because the buttons are REUSED between
+   visits (screen-sidebar.ts): the animation has to be re-armed, not re-triggered by a state change. */
+.settings-nav-item.is-entering {
+  animation: popup-item-in 0.3s cubic-bezier(0.2, 0, 0.2, 1) both;
+  animation-delay: calc(var(--nav-index, 0) * 40ms);
+}
+
+/* ── Library ────────────────────────────────────────────────────────────────
+   EVERY rule below is prefixed with `#app #library` — two ids against the one that any carousel rule
+   carries. The cards share the .card class with the strip, and specificity is what keeps the strip's
+   sizes, its entry-screen fade and its flip transition off them, deterministically rather than by the
+   order the rules happen to sit in the file. Not one line of the carousel's CSS is touched. */
+
+#library .settings-column {
+  right: 0;
+}
+
+/* Handing over to the entry screen and coming back is NOT a fade: for the 0.35s a fade takes, the
+   carousel underneath is visible through the veil rebuilding itself. The class is put on for exactly one
+   frame around the swap (library-screen.ts). */
+#library.is-instant,
+#library.is-instant .settings-veil,
+#library.is-instant .settings-column {
+  transition: none;
+}
+
+/* 0, not the 40 of the shared skeleton: the sidebar's own 380 already carries the gap, and the pane's
+   padding adds the rest. */
+#library .settings-body {
+  gap: 0;
+}
+
+.library-pane {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+
+/* The padding is not decoration: the selected card scales to 1.06 and the focus body stands 8 design px
+   off it and breathes a few more, which puts its corner ~22 design px outside the card's own box. */
+.library-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+  /* Top is its own value, smaller than the other three sides: .settings-nav has NO top padding of its
+     own, so the full 44 up here read as the grid starting visibly lower than the sidebar. */
+  padding: calc(20 * var(--px)) calc(44 * var(--px)) calc(44 * var(--px));
+  /* Fades driven from JS, none where there is nothing beyond (see screen-scroller.ts). */
+  --fade-top: 0px;
+  --fade-bottom: 0px;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 var(--fade-top),
+    #000 calc(100% - var(--fade-bottom)),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 var(--fade-top),
+    #000 calc(100% - var(--fade-bottom)),
+    transparent 100%
+  );
+  /* The cards must sit ABOVE the focus body, and z-index only bites on a positioned element. */
+  position: relative;
+  z-index: 1;
+}
+
+.library-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* --cols is measured in JS (library-screen.ts) rather than left to flex-wrap, because up/down are a
+   ±cols step and the maths has to agree with the layout. The fallback of 1 is deliberate: a fallback of
+   6 would overflow the container for the frame before the first measurement.
+   Positioned, because a card LEAVING the section is pulled out of the grid's flow and pinned where it
+   stood while it fades (see .is-leaving). */
+.library-grid {
+  position: relative;
+  display: grid;
+  justify-content: center;
+  align-content: start;
+  /* MIRRORS LIB_GAP in library-grid.ts — the column count is worked out there from this same number. */
+  gap: calc(24 * var(--px));
+  grid-template-columns: repeat(var(--cols, 1), calc(200 * var(--px)));
+}
+
+.library-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 calc(60 * var(--px));
+  text-align: center;
+  font-weight: 500;
+  font-size: calc(28 * var(--px));
+  line-height: calc(38 * var(--px));
+  color: color-mix(in srgb, var(--fg) 70%, transparent);
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 0.2s ease;
+}
+
+.library-empty[aria-hidden='true'] {
+  opacity: 0;
+}
+
+#app #library .library-grid .card {
+  width: calc(200 * var(--px));
+  height: calc(300 * var(--px));
+  /* Pinned against #app[data-screen='detail'] .card: opening an entry switches the screen at once while
+     this overlay takes 0.35s to fade, so without it every cover would blink to zero on the first frame
+     of the way out. */
+  opacity: 1;
+  /* The scale lives in a VARIABLE because the FLIP that reorders the grid writes an inline transform:
+     it composes translate() with scale(var(--card-scale)), and a literal here would be wiped by it. */
+  --card-scale: 1;
+  transform: scale(var(--card-scale));
+  transform-origin: center;
+  transition:
+    transform var(--morph) var(--morph-ease),
+    opacity var(--morph) ease;
+  pointer-events: auto;
+}
+
+/* A card arriving with its section, and one leaving it: the same movement played each way, so a switch
+   reads as the grid re-forming rather than as covers blinking in and out. Animations, not transitions —
+   the arrival is staggered by the card's place in the list (--card-index, written by library-screen.ts).
+   `backwards`, not `both`: the fill has to cover the card's WAIT for its turn in the wave, and nothing
+   after. A forwards fill keeps the animation owning `transform` once it is over, and selecting the card
+   would then snap instead of growing. */
+#app #library .library-grid .card.is-entering {
+  animation: library-card-in 0.26s cubic-bezier(0.2, 0, 0.2, 1) backwards;
+  animation-delay: calc(var(--card-index, 0) * 24ms);
+}
+
+#app #library .library-grid .card.is-leaving {
+  pointer-events: none;
+  z-index: 0;
+  animation: library-card-out 0.22s cubic-bezier(0.4, 0, 1, 1) both;
+}
+
+@keyframes library-card-in {
+  from {
+    opacity: 0;
+    transform: scale(0.9) translateY(calc(14 * var(--px)));
+  }
+  to {
+    opacity: 1;
+    transform: scale(var(--card-scale, 1));
+  }
+}
+
+@keyframes library-card-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+}
+
+/* Grown in place: the grid's geometry does not depend on which card is selected, so the neighbours must
+   not shift. z-index lifts it over them, since it now overlaps. */
+#app #library .library-grid .card.is-selected {
+  --card-scale: 1.06;
+  z-index: 1;
+}
+
+/* A held direction: the same trick the strip uses — a step exactly as long as the repeat interval, in
+   linear, which glues the steps into one continuous glide instead of 143 ms of ease each. */
+#app[data-flipping] #library .library-grid .card {
+  transition: transform var(--flip-step) linear;
+}
+
+/* The grid's focus body. Unlike the strip's, its canvas is NOT inside the scrolling content: a catalogue
+   of hundreds would make a canvas thousands of pixels tall, and its backing store is width x height x 4
+   x dpr² bytes. This one is the size of the pane, and library-screen.ts folds the scroll offset into the
+   coordinates it draws at. Positioned over the pane but under the cards. */
+#library-jelly {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 1;
+  transition: opacity 0.2s ease;
+}
+
+/* Nothing to wrap: the focus is in the column, or the section is empty. Faded rather than moved — the
+   body keeps its place, so the way back in is a fade rather than a jump from wherever it last stood. */
+#library-jelly.is-hidden {
+  opacity: 0;
+}
+
+/* …and the instant frame kills even that: a hand-over to the entry screen and back is a CUT. */
+#library.is-instant #library-jelly {
+  transition: none;
+}
+
+/* The dot moves INSIDE the card, to its top-right corner: the grid is dense and there is no room under a
+   card for the carousel's hanging dot. Only geometry and the ring are set here — opacity and the busy
+   pulse stay with .card.shows-dot / .card.is-busy.shows-dot. The ring is the background colour: the dot
+   lies over arbitrary artwork and would vanish on a bright cover. */
+#app #library .library-grid .card-dot {
+  left: auto;
+  bottom: auto;
+  margin-left: 0;
+  top: calc(12 * var(--px));
+  right: calc(12 * var(--px));
+  width: calc(12 * var(--px));
+  height: calc(12 * var(--px));
+  box-shadow: 0 0 0 calc(2 * var(--px)) color-mix(in srgb, var(--d1) 85%, transparent);
 }
 
 /* ── BROWSER: narrow / short viewports ─────────────────────────────────────

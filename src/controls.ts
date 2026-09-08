@@ -22,6 +22,8 @@ import { type AudioController } from './audio.js';
 import { type Router } from './router.js';
 import { type CollectionEntry, type ListState } from './collection.js';
 import { type Carousel } from './carousel.js';
+import type { NavSurface } from './nav-surface.js';
+import type { SystemCardId } from './system-cards.js';
 import { type SessionController } from './session.js';
 import { formatDate, formatPlaytime, statsFor } from './stats.js';
 import { req, reqQuery } from './dom.js';
@@ -71,6 +73,8 @@ export interface ControlsDeps {
   readonly router: Router;
   /** The carousel — the THIRD focus surface, above the bar and the popup stack (see navLeft…). */
   readonly carousel: Carousel;
+  /** The Library — a full-screen surface, above the strip and the bar but under the popup. */
+  readonly library: LibraryNav;
   /** The pretend game session Play starts and Force close ends. */
   readonly session: SessionController;
   /**
@@ -89,6 +93,16 @@ export interface ControlsDeps {
   readonly onFlipping: (flipping: boolean) => void;
 }
 
+/**
+ * What the interaction layer needs from a full-screen screen. The launcher has three of them (Settings,
+ * Customize, Library) and routes into whichever is open; the site has the Library, and the seam is kept
+ * plural-shaped so the next one costs an entry in `overlays` rather than an edit in every primitive.
+ */
+export interface LibraryNav extends NavSurface {
+  open(options?: { readonly focusSlug?: string }): void;
+  close(silent?: boolean): void;
+}
+
 export interface Controls {
   /** New catalogue data (or a load state) for the Github link and the Go back / Collection item. */
   setCollection(state: ListState, entries: readonly CollectionEntry[]): void;
@@ -98,12 +112,27 @@ export interface Controls {
   onScreen(): void;
   /** The session changed phase: the Force close item and the statistics both follow it. */
   onSession(): void;
+  /** Opens the surface one of the strip's site cards stands for. */
+  openSystemCard(id: SystemCardId): void;
+  /** A full-screen screen closed itself — put the bar highlight back on the More button it came from. */
+  screenClosed(): void;
   /** Starts the gamepad polling loop. */
   start(): void;
 }
 
 export function createControls(deps: ControlsDeps): Controls {
   const { audio, router, carousel, session } = deps;
+
+  /**
+   * The full-screen screens, as a set rather than as a named one. Every mechanism that has to stand down
+   * while a screen is up — the idle timer, the wheel, and all six primitives — asks THESE two questions
+   * instead of `library.isOpen()`, so the next screen is one entry in this list rather than an eleventh
+   * edit in every primitive.
+   */
+  const overlays = {
+    active: (): NavSurface | null => (deps.library.isOpen() ? deps.library : null),
+    isAnyOpen: (): boolean => deps.library.isOpen(),
+  };
 
   // The glide step the strip animates one held move over (styles.css reads it as --flip-step). Slightly
   // LONGER than the repeat itself, on purpose: the keyboard's repeats arrive on a timer and their real
@@ -482,7 +511,10 @@ export function createControls(deps: ControlsDeps): Controls {
    * the card's stand-in, More is faded out — see styles.css), so the highlight has nothing to sit on.
    */
   function focusActive(): boolean {
-    return popupView === 'none' && carousel.screen() !== 'carousel';
+    if (popupView !== 'none') return false;
+    // A full-screen screen covers the bar (which is faded out and pointer-events:none underneath).
+    if (overlays.isAnyOpen()) return false;
+    return carousel.screen() !== 'carousel';
   }
 
   function applyFocus(): void {
@@ -616,6 +648,9 @@ export function createControls(deps: ControlsDeps): Controls {
 
   function armIdleTimer(): void {
     if (idleTimer !== 0) window.clearTimeout(idleTimer);
+    // With a screen up there is no bar highlight to retire and no carousel to hand back to: firing would
+    // strip the return point on More and light the strip up under the veil.
+    if (overlays.isAnyOpen()) return;
     idleTimer = window.setTimeout(() => {
       idleTimer = 0;
       setMouseAsleep(true);
@@ -750,6 +785,12 @@ export function createControls(deps: ControlsDeps): Controls {
   // sound, and `locked` (the return-morph still running) is not a dead end at all.
   function navLeft(repeat = false): void {
     if (repeat) noteFlip();
+    // BEFORE the strip: a direction held on a screen must never flip the carousel underneath it.
+    const overlay = popupView === 'none' ? overlays.active() : null;
+    if (overlay !== null) {
+      overlay.navLeft(repeat);
+      return;
+    }
     if (onCarousel()) {
       if (carousel.move(-1) === 'at-end' && !repeat) audio.playLimit();
       return;
@@ -758,6 +799,11 @@ export function createControls(deps: ControlsDeps): Controls {
   }
   function navRight(repeat = false): void {
     if (repeat) noteFlip();
+    const overlay = popupView === 'none' ? overlays.active() : null;
+    if (overlay !== null) {
+      overlay.navRight(repeat);
+      return;
+    }
     if (onCarousel()) {
       if (carousel.move(1) === 'at-end' && !repeat) audio.playLimit();
       return;
@@ -766,13 +812,38 @@ export function createControls(deps: ControlsDeps): Controls {
   }
   function navUp(repeat = false): void {
     if (repeat) noteFlip();
+    if (popupView !== 'none') {
+      moveStackFocus(-1);
+      return;
+    }
+    const overlay = overlays.active();
+    if (overlay !== null) {
+      overlay.navUp(repeat);
+      return;
+    }
     moveStackFocus(-1);
   }
   function navDown(repeat = false): void {
     if (repeat) noteFlip();
+    if (popupView !== 'none') {
+      moveStackFocus(1);
+      return;
+    }
+    const overlay = overlays.active();
+    if (overlay !== null) {
+      overlay.navDown(repeat);
+      return;
+    }
     moveStackFocus(1);
   }
   function navActivate(): void {
+    if (popupView === 'none') {
+      const overlay = overlays.active();
+      if (overlay !== null) {
+        overlay.navActivate();
+        return;
+      }
+    }
     if (popupView !== 'none') {
       const item = stackItems()[stackIndex];
       if (item === undefined) return;
@@ -797,6 +868,13 @@ export function createControls(deps: ControlsDeps): Controls {
     else triggerPlay();
   }
   function navBack(): void {
+    if (popupView === 'none') {
+      const overlay = overlays.active();
+      if (overlay !== null) {
+        overlay.navBack();
+        return;
+      }
+    }
     back();
   }
 
@@ -844,6 +922,9 @@ export function createControls(deps: ControlsDeps): Controls {
   window.addEventListener(
     'wheel',
     (event) => {
+      // onCarousel() stays true under a full-screen screen — without this the wheel would flip through
+      // the strip behind the veil, while the screen scrolls its own pane.
+      if (overlays.isAnyOpen()) return;
       if (!onCarousel()) return;
       noteMouseActivity();
       const delta = event.deltaY !== 0 ? event.deltaY : event.deltaX;
@@ -973,6 +1054,36 @@ export function createControls(deps: ControlsDeps): Controls {
     onScreen(): void {
       applyMenuItems();
       applyFocus();
+    },
+
+    openSystemCard(id: SystemCardId): void {
+      // A switch with an exhaustive default, not an if: a card added to SYSTEM_CARDS and forgotten here
+      // would otherwise fall through silently, and no type would have caught it.
+      switch (id) {
+        case 'library':
+          // The card's own `button` (main.ts) is this press's sound; the screen adds none of its own.
+          deps.library.open();
+          break;
+        default: {
+          const exhaustive: never = id;
+          throw new Error(`unhandled site card ${String(exhaustive)}`);
+        }
+      }
+      applyFocus(); // the bar highlight clears while a screen is up
+    },
+
+    /**
+     * The screen closed itself (B / Close): put the highlight back on the More button it came from — on
+     * an entry screen. Opened from a card in the strip, the screen came from the CAROUSEL, where the bar
+     * is hidden and the row is the surface: there the highlight simply clears.
+     */
+    screenClosed(): void {
+      const items = barFocusables();
+      const more = items.indexOf(moreButton);
+      if (more !== -1) focusIndex = more;
+      focusRevealed = true;
+      applyFocus();
+      armIdleTimer(); // the countdown was suspended while the screen was up
     },
 
     onSession(): void {

@@ -7,6 +7,7 @@ import { createAudioController } from './audio.js';
 import { createCarousel } from './carousel.js';
 import { createControls } from './controls.js';
 import { createHeroController } from './hero.js';
+import { createLibraryScreen } from './library-screen.js';
 import { createRouter, type Route } from './router.js';
 import { loadIndex, type CollectionEntry, type ListState } from './collection.js';
 import { busyKindOf, createSessionController, statusOf } from './session.js';
@@ -90,9 +91,11 @@ function settleFlip(): void {
   if (!titleHeld) return;
   titleHeld = false;
   // Re-read rather than replayed: the route may have moved on during the hold (A opens an entry, whose
-  // own screen writes its own copy), and only a strip still on screen has a name to put in the bar.
+  // own screen writes its own copy), and only a strip still on screen has a name to put in the bar. A
+  // site card names itself there exactly as an entry does.
   const selected = carousel.screen() === 'carousel' ? carousel.selected() : undefined;
-  if (selected !== undefined) router.setBrowseCopy(selected.title);
+  if (selected === undefined) return;
+  router.setBrowseCopy(selected.kind === 'game' ? selected.entry.title : selected.card.title);
 }
 
 function onFlipping(flipping: boolean): void {
@@ -119,6 +122,52 @@ function applyNothing(): void {
   audio.setGameMusic(null);
 }
 
+/**
+ * Where the screen ABOVE the carousel goes back to. An entry screen can be reached from the strip or
+ * from the Library, and "back" has to mean the place it was actually entered from — the launcher's own
+ * `returnTo`.
+ */
+type ReturnTo = 'carousel' | 'library';
+let returnTo: ReturnTo = 'carousel';
+
+/** Brings the Library back up if that is where the entry screen was entered from. Consumes the flag. */
+function restoreOrigin(): void {
+  if (returnTo !== 'library') return;
+  returnTo = 'carousel';
+  libraryScreen.restore();
+  // …and undo what opening the entry did to everything AROUND the screen. The entry screen took the
+  // hero, the palette and the music with it; the Library is a site surface and belongs over the site's
+  // own. The strip goes back to the card the screen was opened from — the only way in.
+  carousel.focusSystem();
+  applyNothing();
+}
+
+/**
+ * Opens one entry's screen. Reached from three places: a card in the strip, the Library's grid, and a
+ * deep link — which is what `origin` records, so B and the browser's Back come back to the right one.
+ */
+function openEntry(slug: string, origin: ReturnTo = 'carousel'): void {
+  returnTo = origin;
+  if (origin === 'library') libraryScreen.close(true);
+  router.go({ kind: 'game', slug });
+}
+
+// ── The Library screen (a full-screen surface, see library-screen.ts) ───────
+// It owns its grid, its sections and its focus; everything it reaches back for is here. Read lazily
+// where it points at `controls`, which is created below — the two point at each other.
+const libraryScreen = createLibraryScreen({
+  audio,
+  getEntries: () => entries,
+  onOpenEntry: (slug) => openEntry(slug, 'library'),
+  onAddGame: () => undefined,
+  onClosed: () => {
+    controls.screenClosed();
+    // Opening the screen told the page that nothing is on screen (its card is a site card). Closing it
+    // hands the carousel back, so the bar has to hear what the row is standing on.
+    carousel.announce();
+  },
+});
+
 const carousel = createCarousel({
   // The selection moved: the bar copy, the background and the music follow it, exactly as they follow
   // the launcher's browse channel — except that here the entry is already in hand, with no round trip
@@ -132,10 +181,19 @@ const carousel = createCarousel({
     controls.onScreen();
     applySession();
   },
-  onActivate: (entry) => {
-    // Entering a card is an ordinary button press — same cue as any other "open" action.
+  onBrowseNone: (card) => {
+    // A site card is selected: there is no entry on screen at all. It names itself in the bar, exactly
+    // where an entry's name goes, and the background falls back to the site's own wallpaper.
+    setBrowseTitle(card.title);
+    applyNothing();
+    applySession();
+  },
+  onActivate: (item) => {
+    // Entering a card is an ordinary button press — same cue as any other "open" action, and a site card
+    // is no different (the surface it opens then plays its own sound on top).
     audio.play('button');
-    router.go({ kind: 'game', slug: entry.slug });
+    if (item.kind === 'game') openEntry(item.entry.slug);
+    else controls.openSystemCard(item.card.id);
   },
   onNavigate: (delta) => {
     audio.play('navigate');
@@ -153,6 +211,7 @@ const controls = createControls({
   audio,
   router,
   carousel,
+  library: libraryScreen,
   session,
   browsedSlug: () => browsedSlug(),
   onForget: (slug) => forgetEntry(slug),
@@ -163,7 +222,7 @@ const controls = createControls({
 function browsedSlug(): string | null {
   const route = router.current();
   if (route.kind === 'game') return route.slug;
-  if (carousel.screen() === 'carousel') return carousel.selected()?.slug ?? null;
+  if (carousel.screen() === 'carousel') return carousel.selectedEntry()?.slug ?? null;
   return null;
 }
 
@@ -180,6 +239,7 @@ function applySession(): void {
   else delete app.dataset['busy'];
   router.setSessionStatus(active !== null && onScreen ? statusOf(active.phase) : '');
   carousel.setBusyEntry(active?.slug ?? null);
+  libraryScreen.setBusyEntry(active?.slug ?? null);
   controls.onSession();
 }
 
@@ -200,6 +260,7 @@ function forgetEntry(slug: string): void {
   if (remaining.length === entries.length) return;
   entries = remaining;
   carousel.setEntries(entries);
+  libraryScreen.setEntries(entries);
   controls.setCollection('ready', entries);
   applyRoute(router.current());
   applySession();
@@ -226,9 +287,19 @@ function applyRoute(route: Route): void {
       router.showCollection();
       return;
     }
+    // The row is a SHORTLIST (MAX_STRIP_GAMES), so an entry opened from the Library — or deep-linked
+    // past the cap — may have no card in it, and the morph would then wear whichever card happens to be
+    // selected, i.e. another entry's cover. Name the source explicitly in that case.
+    const onStrip = carousel.selected();
+    if (!(onStrip?.kind === 'game' && onStrip.entry.slug === entry.slug)) {
+      carousel.setDetailArt(libraryScreen.coverFor(entry.slug));
+    }
     applyEntry(entry, false);
     return;
   }
+
+  // Leaving an entry screen: the Library comes back if that is where the entry was opened from.
+  restoreOrigin();
 
   if (!wantsCollection) {
     carousel.setScreen('home');
@@ -241,14 +312,21 @@ function applyRoute(route: Route): void {
 
   carousel.setScreen('carousel');
   const selected = carousel.screen() === 'carousel' ? carousel.selected() : undefined;
-  if (selected === undefined) {
+  if (selected !== undefined && selected.kind === 'system') {
+    // The row is standing on a site card: it names itself and the wallpaper stays up.
+    setBrowseTitle(selected.card.title);
+    applyNothing();
+    return;
+  }
+  const entry = selected?.kind === 'game' ? selected.entry : undefined;
+  if (entry === undefined) {
     // Refused: fewer than two entries to flip through — the feed is still in flight, or it failed. The
     // landing page stays as it is; an outright failure at least says so where the entry name would be.
     router.setBrowseCopy(feedState === 'error' ? FEED_ERROR_STATUS : null);
     applyNothing();
     return;
   }
-  applyEntry(selected, true);
+  applyEntry(entry, true);
 }
 
 router.start((route, collection) => {
@@ -273,6 +351,7 @@ void loadIndex().then(
     feedState = 'ready';
     entries = loaded;
     carousel.setEntries(loaded);
+    libraryScreen.setEntries(loaded);
     controls.setCollection('ready', loaded);
     applyRoute(router.current());
   },
@@ -280,6 +359,7 @@ void loadIndex().then(
     feedState = 'error';
     entries = [];
     carousel.setEntries([]);
+    libraryScreen.setEntries([]);
     controls.setCollection('error', []);
     applyRoute(router.current());
   },
