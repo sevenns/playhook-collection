@@ -1,7 +1,7 @@
 // The site's own cards, sitting at the tail of the collection carousel. Ported from playhook @ c26fae7
 // (release/v0.8.0) : src/renderer/system-cards.ts, where there are four of them — Library,
-// Notifications, Settings and System. Only the first has anything behind it here: a showcase has nothing
-// to notify about, no settings to keep and no machine to power down (see PORTED-FROM.md).
+// Notifications, Settings and System. Two of those have something behind them here; the other two do
+// not: a showcase has nothing to notify about and no machine to power down (see PORTED-FROM.md).
 //
 // They belong to the PAGE, not to the feed: the collection owns entries, while this is pure UI, and
 // pushing it through CollectionEntry would make the catalogue know about buttons. carousel.ts splices
@@ -12,7 +12,7 @@
 // plain strings.
 
 /** Which site card this is (also the value carousel.ts reports to main on activation). */
-export type SystemCardId = 'library';
+export type SystemCardId = 'library' | 'settings';
 
 export interface SystemCard {
   readonly id: SystemCardId;
@@ -25,4 +25,5 @@ export interface SystemCard {
 /** The cards, in the mockup's order (they always sit after the entries, never between them). */
 export const SYSTEM_CARDS: readonly SystemCard[] = [
   { id: 'library', title: 'Library', aria: 'Library' },
+  { id: 'settings', title: 'Settings', aria: 'Settings' },
 ] as const;

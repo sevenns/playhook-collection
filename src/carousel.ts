@@ -29,7 +29,7 @@ import {
   stripCanvas,
   stripOffset,
 } from './carousel-geometry.js';
-import { SYSTEM_CARDS, type SystemCard } from './system-cards.js';
+import { SYSTEM_CARDS, type SystemCard, type SystemCardId } from './system-cards.js';
 import { systemCardIcon } from './system-card-icons.js';
 import { req, reqCanvas } from './dom.js';
 import { FALLBACK_COLOUR, JELLY, createFocusJelly, jellyBoxOf } from './focus-jelly.js';
@@ -83,10 +83,10 @@ export interface Carousel {
    */
   focusEntry(slug: string): void;
   /**
-   * Puts the selection on the FIRST site card, again without telling main. Where the strip goes when the
-   * user comes back from a surface that card opened.
+   * Puts the selection on one named site card, again without telling main. Where the strip goes when the
+   * user comes back from the surface that card opened.
    */
-  focusSystem(): void;
+  focusSystem(id: SystemCardId): void;
   /** Activates the selected card (A / a click on it). */
   activate(): void;
   /** The current screen level. */
@@ -435,8 +435,8 @@ export function createCarousel(deps: CarouselDeps): Carousel {
       loadNearbyArt();
     },
 
-    focusSystem(): void {
-      const position = items.findIndex((item) => item.kind === 'system');
+    focusSystem(id: SystemCardId): void {
+      const position = items.findIndex((item) => item.kind === 'system' && item.card.id === id);
       if (position === -1 || position === index) return;
       index = position;
       applyLayout();

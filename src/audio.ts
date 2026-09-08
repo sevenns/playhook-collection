@@ -1,23 +1,27 @@
-// UI sound effects + the looping background music of whichever collection entry is on screen.
+// UI sound effects + the looping background music of whichever collection entry is on screen, plus the
+// app-wide ambience that plays whenever there is no entry music to play.
 //
-// The SFX half was written fresh for this site; the music half is a port of playhook's audio.ts, minus
-// its source layer. The launcher juggles THREE music sources — the browsed game's track, the inserted
-// card's own and an app-wide ambience, resolved through applyEffective() — and none of that has a
-// counterpart here: the site has exactly one source, the entry's `backgroundMusic`. What IS ported 1:1
-// is the crossfade engine: at most two live <audio> elements, a volume ramp on requestAnimationFrame,
-// and the pause guard. That is not fidelity for its own sake — flipping through the carousel switches
-// tracks with every card, and a hard cut there is audible.
+// The SFX half was written fresh for this site; the music half is a port of playhook's audio.ts. The
+// launcher juggles THREE music sources — the browsed game's track, the inserted card's own and an
+// app-wide ambience — resolved through the effective source `browseMusic ?? cardMusic ?? ambient`. The
+// middle one has no counterpart here (there is no card), so the site resolves TWO: the entry's own
+// `backgroundMusic` and the ambience chosen in Settings. What IS ported 1:1 is the crossfade engine: at
+// most two live <audio> elements, a volume ramp on requestAnimationFrame, and the pause guard. That is
+// not fidelity for its own sake — flipping through the carousel switches tracks with every card, and a
+// hard cut there is audible.
+//
+// The `idle` half of setBrowseMusic is the launcher's rule verbatim: standing on a SITE CARD is not the
+// same as an entry with no music of its own. Both end up on the ambience here, but they have to be said
+// separately, because a null alone would fall through the same chain the launcher's card music sits in.
 //
 // Slot → file is NOT 1:1, and the mismatch is silent if you get it wrong (an unknown slot just never
 // plays): `navigate` is served by move.ogg. That quirk comes from playhook's asset-reader.ts, where the
 // sound-set folders predate the slot vocabulary.
 //
-// The set is `playhook-abyss`, playhook 0.8.0's own out-of-the-box choice (asset-reader.ts,
-// DEFAULT_SOUND_SET) — the showcase should sound like the product does. It is ONE set for the whole page
-// and an entry cannot override it: per-card UI sounds left the card format in 0.7.0, so the launcher
-// plays the set chosen in its Settings and nothing else. Only the music still travels with an entry.
-// One of the launcher's nine slots is not here: `notify`, since a showcase has nothing to notify about
-// (see PORTED-FROM.md).
+// Every one of the launcher's eighteen sound sets is bundled, under its own name (public/sfx/<set>/),
+// and the set is switched live from the Settings screen exactly as it is there — a card cannot override
+// it, since per-card UI sounds left the card format in 0.7.0. One of the launcher's nine slots is not
+// here: `notify`, since a showcase has nothing to notify about (see PORTED-FROM.md).
 import { shouldPlayLimit } from './sfx-limit.js';
 
 /**
@@ -28,24 +32,52 @@ import { shouldPlayLimit } from './sfx-limit.js';
 export type SfxName =
   'navigate' | 'button' | 'back' | 'play' | 'limit' | 'popup-open' | 'popup-close' | 'typing';
 
+/** Slot → the file that serves it inside a set's folder (see the note on `navigate` above). */
 const SFX_FILES: Readonly<Record<SfxName, string>> = {
-  navigate: './sfx/move.ogg',
-  button: './sfx/button.ogg',
-  back: './sfx/back.ogg',
-  play: './sfx/play.ogg',
-  limit: './sfx/limit.ogg',
-  'popup-open': './sfx/popup-open.ogg',
-  'popup-close': './sfx/popup-close.ogg',
-  typing: './sfx/typing.ogg',
+  navigate: 'move.ogg',
+  button: 'button.ogg',
+  back: 'back.ogg',
+  play: 'play.ogg',
+  limit: 'limit.ogg',
+  'popup-open': 'popup-open.ogg',
+  'popup-close': 'popup-close.ogg',
+  typing: 'typing.ogg',
 };
 
 const SFX_NAMES = Object.keys(SFX_FILES) as readonly SfxName[];
+
+/** What the build found in public/ — the launcher's AudioOptions, arriving over a fetch (settings.ts). */
+export interface AudioOptions {
+  readonly soundSets: readonly string[];
+  /** Without the extension; `ambientUrl` adds it back. */
+  readonly ambientTracks: readonly string[];
+}
+
+/** The files of one bundled sound set. */
+function soundSetUrl(set: string, slot: SfxName): string {
+  return `./sfx/${set}/${SFX_FILES[slot]}`;
+}
+
+/** The file of one bundled ambience track (the settings keep the bare name). */
+export function ambientUrl(track: string | null): string | null {
+  return track === null ? null : `./ambience/${track}.ogg`;
+}
 
 /** Crossfade / fade-in duration in ms. A whole 0→1 volume ramp takes this long; partial ramps scale down. */
 const FADE_MS = 800;
 /** Volume within this of the target counts as "arrived" (float ramps never land exactly). */
 const FADE_EPSILON = 0.001;
-const MUSIC_VOLUME = 0.5;
+/** Until the stored settings are applied — the launcher's own fallbacks (its audio.ts). */
+const DEFAULT_MUSIC_VOLUME = 0.5;
+const DEFAULT_SFX_VOLUME = 1;
+
+/**
+ * playhook 0.8.0's own out-of-the-box choices (its DEFAULT_SETTINGS) — the showcase should sound like
+ * the product does. They live HERE rather than in settings.ts so the controller is audible from the
+ * moment it is built, before any stored settings have been applied to it.
+ */
+export const DEFAULT_SOUND_SET = 'playhook-abyss';
+export const DEFAULT_AMBIENT_TRACK = 'playhook-abyss';
 
 export interface AudioController {
   /** Plays a one-shot UI sound. Best-effort: a browser that blocks audio before the first user gesture
@@ -59,8 +91,26 @@ export interface AudioController {
   playLimit(): void;
   /** Ends the current series of blocked attempts, so the next one sounds again. Called on release. */
   rearmLimit(): void;
-  /** Switches to an entry's background track; null fades out to silence. */
-  setGameMusic(url: string | null): void;
+  /**
+   * What is ON SCREEN, musically, in ONE statement — the launcher's `setBrowseMusic`:
+   *  • `url` — the entry's own background track; null falls through to the ambience;
+   *  • `idle` — there is no entry on screen at all (a site card is selected, or the landing page is up).
+   *
+   * The two travel together because applying them one at a time passes through a third state in between,
+   * which starts a crossfade the next call immediately interrupts — and an interrupted crossfade drops
+   * its outgoing element outright, which is heard as a cut rather than a fade.
+   */
+  setBrowseMusic(url: string | null, idle: boolean): void;
+  /** The app-wide ambience (a bundled track), or null for "No ambience". */
+  setAmbient(url: string | null): void;
+  /** Ambience wins over an entry's own music instead of standing in for it (the Settings toggle). */
+  setOnlyGlobalAmbient(only: boolean): void;
+  /** Switches the bundled UI sound set — every sound the page plays, on every screen. */
+  setSounds(set: string): void;
+  /** The background-music/ambience volume (0..1), live. */
+  setMusicVolume(volume: number): void;
+  /** The UI sound-effects volume (0..1), live. */
+  setSfxVolume(volume: number): void;
   /** Starts/stops the background music to match the desired playing state (the visibility gate). */
   setMusicPlaying(shouldPlay: boolean): void;
 }
@@ -79,17 +129,25 @@ export function createAudioController(): AudioController {
   let limitArmed = true;
   let lastLimitAttemptAt = Number.NEGATIVE_INFINITY;
 
+  let sfxVolume = DEFAULT_SFX_VOLUME;
+  /** The set whose elements are loaded; a repeated name never rebuilds them. */
+  let soundSet: string | null = null;
+
   const playSfx = (name: SfxName): void => {
     const el = sfx.get(name);
     if (el === undefined) return;
     // Clone so rapid retriggers (fast navigation) overlap instead of cutting each other off.
     const node = el.cloneNode() as HTMLAudioElement;
+    node.volume = sfxVolume;
     void node.play().catch(() => undefined);
   };
 
-  function loadSfx(): void {
+  /** Builds the <audio> elements of one bundled set, replacing whatever was loaded before. */
+  function loadSfx(set: string): void {
+    sfx.clear();
     for (const name of SFX_NAMES) {
-      const el = new Audio(SFX_FILES[name]);
+      const el = new Audio(soundSetUrl(set, name));
+      el.volume = sfxVolume;
       el.preload = 'auto';
       sfx.set(name, el);
     }
@@ -102,6 +160,15 @@ export function createAudioController(): AudioController {
   let active: Player | null = null;
   let outgoing: Player | null = null;
   let activeUrl: string | null = null;
+
+  // The two music sources, and the state that decides between them (see `effective`). `browseIdle` is
+  // "there is no entry on screen at all", which the launcher tracks the same way.
+  let browseMusic: string | null = null;
+  let ambient: string | null = null;
+  let browseIdle = false;
+  let onlyGlobalAmbient = false;
+
+  let musicVolume = DEFAULT_MUSIC_VOLUME;
 
   // The gate result (the tab is visible). NOT a short-circuit: a repeated `true` re-issues play() on the
   // live element without restarting the fade.
@@ -150,8 +217,8 @@ export function createAudioController(): AudioController {
       }
     }
 
-    if (active !== null && Math.abs(active.el.volume - MUSIC_VOLUME) > FADE_EPSILON) {
-      active.el.volume = stepToward(active.el.volume, MUSIC_VOLUME, maxDelta);
+    if (active !== null && Math.abs(active.el.volume - musicVolume) > FADE_EPSILON) {
+      active.el.volume = stepToward(active.el.volume, musicVolume, maxDelta);
       busy = true;
     }
 
@@ -200,7 +267,23 @@ export function createAudioController(): AudioController {
     ensureFade();
   };
 
-  const setMusic = (target: string | null): void => {
+  /**
+   * Which source is actually heard. The launcher's chain, with its card layer removed:
+   *  • "only global ambience" is the user's override, and it says exactly what it says — an entry's own
+   *    track is not consulted at all, so an ambience of "None" is silence (that is what main answers in
+   *    the launcher too);
+   *  • standing on a site card, or on the landing page, is `idle`: there IS no entry, so the ambience is
+   *    what the page sounds like;
+   *  • otherwise the entry's own track, falling back to the ambience when it has none.
+   */
+  const effective = (): string | null => {
+    if (onlyGlobalAmbient) return ambient;
+    if (browseIdle) return ambient;
+    return browseMusic ?? ambient;
+  };
+
+  const applyEffective = (): void => {
+    const target = effective();
     if (target === activeUrl) return; // idempotent: the same source never restarts playback
     if (wantPlay) crossfadeTo(target);
     else hardSwap(target);
@@ -226,7 +309,8 @@ export function createAudioController(): AudioController {
   window.addEventListener('pointerdown', unlock);
   window.addEventListener('keydown', unlock);
 
-  loadSfx();
+  loadSfx(DEFAULT_SOUND_SET);
+  soundSet = DEFAULT_SOUND_SET;
 
   return {
     play: playSfx,
@@ -244,8 +328,39 @@ export function createAudioController(): AudioController {
       limitArmed = true;
     },
 
-    setGameMusic(url: string | null): void {
-      setMusic(url);
+    setBrowseMusic(url: string | null, idle: boolean): void {
+      browseMusic = url;
+      browseIdle = idle;
+      applyEffective();
+    },
+
+    setAmbient(url: string | null): void {
+      ambient = url;
+      applyEffective();
+    },
+
+    setOnlyGlobalAmbient(only: boolean): void {
+      onlyGlobalAmbient = only;
+      applyEffective();
+    },
+
+    setSounds(set: string): void {
+      if (set === soundSet) return;
+      soundSet = set;
+      loadSfx(set);
+    },
+
+    setMusicVolume(volume: number): void {
+      musicVolume = volume;
+      // Live: the ramp walks the ACTIVE element to the new target, so a slider drag is heard as it moves
+      // rather than on the next track change. A paused element keeps its frozen volume until playback
+      // resumes, exactly as it does across a crossfade.
+      if (wantPlay && active !== null) ensureFade();
+    },
+
+    setSfxVolume(volume: number): void {
+      sfxVolume = volume;
+      for (const el of sfx.values()) el.volume = volume;
     },
 
     setMusicPlaying(shouldPlay: boolean): void {
@@ -255,8 +370,7 @@ export function createAudioController(): AudioController {
         // muted. Then ramp only if we're not already at the target.
         if (active !== null) void active.el.play().catch(() => undefined);
         if (outgoing !== null) void outgoing.el.play().catch(() => undefined);
-        const settled =
-          active === null || Math.abs(active.el.volume - MUSIC_VOLUME) <= FADE_EPSILON;
+        const settled = active === null || Math.abs(active.el.volume - musicVolume) <= FADE_EPSILON;
         if (!settled || outgoing !== null) ensureFade();
         return;
       }

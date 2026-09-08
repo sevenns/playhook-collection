@@ -3,7 +3,7 @@
 // volumes, locale, window focus) are gone. What replaces them is one fetch of the site's own collection
 // feed, and a single applyRoute() that hands the resulting entry to the four subsystems.
 import { AUTO_CHAIN_MS, NAV_REPEAT_MS } from './auto-repeat.js';
-import { createAudioController } from './audio.js';
+import { ambientUrl, createAudioController } from './audio.js';
 import { createCarousel } from './carousel.js';
 import { createControls } from './controls.js';
 import { createGameSettingsScreen, type GameDraft } from './game-settings-screen.js';
@@ -11,6 +11,9 @@ import { createHeroController } from './hero.js';
 import { createLibraryScreen } from './library-screen.js';
 import { createOsk } from './osk.js';
 import { createRouter, type Route } from './router.js';
+import { createSettingsScreen } from './settings-screen.js';
+import { createSettingsStore, loadAudioOptions, type SiteSettings } from './settings.js';
+import { createWakeLock } from './wake-lock.js';
 import { loadIndex, type CollectionEntry, type ListState } from './collection.js';
 import { busyKindOf, createSessionController, statusOf } from './session.js';
 import { preload } from './preload.js';
@@ -47,6 +50,8 @@ const FLIP_SETTLE_MS = AUTO_CHAIN_MS + NAV_REPEAT_MS;
 
 const app = req('app');
 const audio = createAudioController();
+const settingsStore = createSettingsStore();
+const wakeLock = createWakeLock();
 const router = createRouter();
 const hero = createHeroController();
 const session = createSessionController();
@@ -80,7 +85,9 @@ function applyEntry(entry: CollectionEntry, onCarousel: boolean): void {
   if (onCarousel) setBrowseTitle(entry.title);
   else router.setGameCopy(entry.title, entry.title);
   hero.showGame(entry.slug, entry.heroUrls);
-  audio.setGameMusic(entry.music);
+  // Not `idle`: there IS an entry on screen. One with no music of its own falls through to the ambience
+  // by itself — see the source chain in audio.ts.
+  audio.setBrowseMusic(entry.music, false);
 }
 
 /** The hold is over: release what waited for it — the covers, the hero and the bar title. */
@@ -118,10 +125,14 @@ function onFlipping(flipping: boolean): void {
   }, FLIP_SETTLE_MS);
 }
 
-/** Nothing (or nothing yet) on screen: back to the wallpaper and silence. */
+/**
+ * Nothing (or nothing yet) on screen: back to the wallpaper, and to the ambience. `idle` is the
+ * launcher's own word for it — the row is standing on a site card, or the landing page is up, and what
+ * the page sounds like then is the ambience chosen in Settings (silence, if that is "No ambience").
+ */
 function applyNothing(): void {
   hero.showWallpaper();
-  audio.setGameMusic(null);
+  audio.setBrowseMusic(null, true);
 }
 
 /**
@@ -181,7 +192,7 @@ function restoreOrigin(): void {
   // …and undo what opening the entry did to everything AROUND the screen. The entry screen took the
   // hero, the palette and the music with it; the Library is a site surface and belongs over the site's
   // own. The strip goes back to the card the screen was opened from — the only way in.
-  carousel.focusSystem();
+  carousel.focusSystem('library');
   applyNothing();
 }
 
@@ -222,6 +233,32 @@ const gameSettingsScreen = createGameSettingsScreen({
   },
   confirmDiscard: (onYes) => controls.confirmDiscard(onYes),
 });
+
+// ── Settings (see settings-screen.ts) ──────────────────────────────────────
+// The store is the source of truth: every change goes through it, is persisted, and comes back out as one
+// snapshot that the audio controller, the wake lock and the screen all read. That is the launcher's own
+// shape — main owns settings.json and pushes `settings:update` — with localStorage standing in for the
+// file and a callback for the IPC.
+const settingsScreen = createSettingsScreen({
+  audio,
+  getSettings: () => settingsStore.read(),
+  onChange: (change) => settingsStore.patch(change),
+  onClosed: () => controls.screenClosed(),
+  onResetRequested: () => controls.confirmReset(() => settingsStore.reset()),
+});
+
+/** Applies one settings snapshot to everything that acts on it. */
+function applySettings(settings: SiteSettings): void {
+  audio.setSounds(settings.soundSet);
+  audio.setSfxVolume(settings.sfxVolume);
+  audio.setMusicVolume(settings.musicVolume);
+  audio.setAmbient(ambientUrl(settings.ambientTrack));
+  audio.setOnlyGlobalAmbient(settings.onlyGlobalAmbient);
+  wakeLock.set(settings.keepAwake);
+  settingsScreen.applySettings(settings);
+}
+
+settingsStore.subscribe(applySettings);
 
 const libraryScreen = createLibraryScreen({
   audio,
@@ -281,6 +318,7 @@ const controls = createControls({
   carousel,
   library: libraryScreen,
   gameSettings: gameSettingsScreen,
+  settings: settingsScreen,
   session,
   browsedSlug: () => browsedSlug(),
   onForget: (slug) => forgetEntry(slug),
@@ -397,6 +435,17 @@ function applyRoute(route: Route): void {
   }
   applyEntry(entry, true);
 }
+
+// The stored settings are applied before anything else runs: the sound set decides which files the SFX
+// elements load, and a press that arrives before that would sound in the default set.
+applySettings(settingsStore.read());
+
+// The bundled sets and tracks the build enumerated. Only the dropdowns need them — the sound set and the
+// ambience are already playing off the stored names — so a failure costs two lists, not the page.
+void loadAudioOptions().then(
+  (options) => settingsScreen.applyAudioOptions(options),
+  () => undefined,
+);
 
 router.start((route, collection) => {
   wantsCollection = collection;

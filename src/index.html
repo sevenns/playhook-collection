@@ -124,6 +124,32 @@
         </div>
       </section>
 
+      <!-- Settings: the launcher's fourth surface, cut down to what a web page can honestly keep — the
+           audio it plays and the one General row a browser can honour (see settings.ts). Structurally
+           the Library's twin, with an expanded-dropdown layer of its own on top. -->
+      <section id="settings" class="settings" aria-hidden="true">
+        <div class="settings-veil"></div>
+        <div class="settings-column">
+          <div class="settings-header">
+            <div class="settings-title">Settings</div>
+          </div>
+          <!-- TWO columns: the screen's sections (and the actions that end it) on the left, the rows of
+               the selected section on the right — see screen-sidebar.ts. -->
+          <div class="settings-body">
+            <div class="settings-nav" id="settings-nav"></div>
+            <div class="settings-list" id="settings-list"></div>
+          </div>
+        </div>
+        <!-- The dropdown's frost lives OUTSIDE the fading container: its own opacity animation would
+             otherwise fade the blur along with everything else, which is the cost we are avoiding. -->
+        <div class="settings-options-blur"></div>
+        <!-- Expanded dropdown: a list of the focused select's options, on top of the screen. -->
+        <div class="settings-options" id="settings-options" aria-hidden="true">
+          <div class="settings-options-veil"></div>
+          <div class="settings-options-list" id="settings-options-list"></div>
+        </div>
+      </section>
+
       <!-- Customize, in the one mode the site can offer: ADD. Structurally the Library's twin (the same
            veil + column + sidebar skeleton), whose pane holds rows rather than covers. The launcher's
            screen edits a game.json on a card; this one collects what a catalogue ENTRY is made of, and

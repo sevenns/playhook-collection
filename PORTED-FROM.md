@@ -19,9 +19,15 @@ written; re-check against the merged HEAD or the `v0.8.0` tag before relying on 
 | `src/index-math.ts`, `src/entrance.ts`, `src/nav-surface.ts`, `src/hover-guard.ts` | same names | 1:1 |
 | `src/screen-scroller.ts` | `src/renderer/screen-scroller.ts` | 1:1 minus its `pxUnit` (see `src/px-unit.ts` below) |
 | `src/screen-sidebar.ts` | `src/renderer/screen-sidebar.ts` | 1:1 — the column of sections + actions both screens are built around |
-| `src/system-cards.ts`, `src/system-card-icons.ts` | same names | the launcher carries four cards (Library / Notifications / Settings / System); the site carries the one it has something behind — see below |
+| `src/system-cards.ts`, `src/system-card-icons.ts` | same names | the launcher carries four cards (Library / Notifications / Settings / System); the site carries the two it has something behind — see below |
 | `src/library-grid.ts` | `src/renderer/library-grid.ts` | geometry and stepping 1:1; the SECTIONS are the site's own (see below) |
 | `src/library-screen.ts` | `src/renderer/library-screen.ts` | ported; its artwork machinery is not (there a cover is a data URL main generates on first sight, so the screen needs a bounded cache with a request queue and an eviction callback — here a cover is a URL and the browser's cache is that cache). The row window, the FLIP re-flow, the section arrival, the focus body, the sidebar and the six primitives all come across |
+| `src/settings-screen.ts` | `src/renderer/settings-screen.ts` | ported: the column, the pane, the preview debounce, the expanded dropdown with its marquee, the slider drag, the hover guard and the six primitives all come across. Its IPC seam does not — a change is applied to the audio controller and written to `localStorage` in the same breath (see `src/settings.ts`) — and neither does the update-status row, which is the one row kind that is Settings' own upstream |
+| `src/settings-form-model.ts` | same name | the SHAPE 1:1 (sections → rows, `volumePercent`, `prettifyName`, the ambience dropdown's empty value ⇄ `null`); the rows themselves are the subset a web page can act on — see below |
+| `src/settings-form-view.ts` | `src/renderer/row-view-core.ts` | narrowed to the three kinds this screen has (toggle / select / slider), i18n resolved away. The launcher shares that file with its Customize screen; here the two screens have no row kind in common, so there is nothing to share |
+| `src/settings.ts` | `src/main/app-settings.ts` + its IPC | only the fields the two share, and `localStorage` in place of `settings.json`. `DEFAULT_SETTINGS` is the launcher's own, one deliberate exception aside (see below) |
+| `src/wake-lock.ts` | — | new; the launcher asks Electron's `powerSaveBlocker` and it simply holds. On the web the lock is dropped whenever the document hides and has to be re-taken, and may be refused outright |
+| `public/ambience/*.ogg` | `audio/ambience/*.mp3` | all eleven of the launcher's 0.8.0 tracks, re-encoded to Vorbis: `ffmpeg -i <track>.mp3 -c:a libvorbis -q:a 4 <track>.ogg`. The extension is dropped from the stored name (the launcher keeps `playhook-abyss.mp3`, the site keeps `playhook-abyss`) |
 | `src/osk.ts`, `src/osk-text.ts` | `src/renderer/osk.ts`, `src/renderer/osk-text.ts` | 1:1, with the launcher's English labels inlined where it reads its i18n layer, and the clipboard read through the browser rather than main |
 | `src/game-settings-screen.ts` | `src/renderer/game-settings-screen.ts` | the SHAPE only — see below |
 | `src/sfx-limit.ts` | `src/renderer/sfx-limit.ts` | 1:1 (its docblock still says `HOLD_DELAY_MS` is 350 — it is 175; the comment is stale upstream and is copied as-is) |
@@ -31,7 +37,7 @@ written; re-check against the merged HEAD or the `v0.8.0` tag before relying on 
 | `src/index.html` | `src/renderer/index.html` | trimmed: Play but no gear/loader, no info/confirm/error/power views, no `data-i18n`; CSP and copy retargeted; Github added; the popup's two-layer veil and the strip's jelly canvas are in |
 | `src/styles.css` | `src/renderer/styles.css` | trimmed + browser fixes, each marked `BROWSER:` in place; TextButton padding follows Figma (13) rather than the launcher (32) |
 | `src/controls.ts` | `src/renderer/controls.ts` | rewritten by hand against it (2000-odd lines → ~1000), including the routing of the six nav primitives across strip / bar / popup stack, the keyboard's timer-driven repeat on the shared chain, the flip spell with its watchdog, and the `limit` latch |
-| `src/audio.ts` | `src/renderer/audio.ts` | SFX written fresh (the `limit` latch is the launcher's); the music crossfade engine ported 1:1 minus the ambience and browse source layers and the startup jingle, plus an autoplay unlock the launcher does not need |
+| `src/audio.ts` | `src/renderer/audio.ts` | SFX written fresh (the `limit` latch is the launcher's); the music crossfade engine ported 1:1 minus the CARD source layer and the startup jingle, plus an autoplay unlock the launcher does not need. `setBrowseMusic(url, idle)`, the ambience channel, the "only global ambience" override and the two volumes are all the launcher's |
 | `src/stats.ts` | `src/renderer/app.ts` (`buildInfoPanel`) + `src/renderer/format.ts` | the panel's SHAPE and its formatters; the numbers themselves are invented (see below) |
 | `src/session.ts` | `src/main/` game controller + `src/renderer/state-view.ts` | only the SHAPE: the phase names, the status strings and the busy-visual mapping. Nothing is launched — see below |
 | `src/main.ts` | `src/renderer/app.ts` | only the wiring tail survives; every `window.api` subscription is replaced by one fetch of the collection feed. The flip settle window (`FLIP_SETTLE_MS`) and the deferred title swap are its |
@@ -40,7 +46,7 @@ written; re-check against the merged HEAD or the `v0.8.0` tag before relying on 
 | `src/collection.ts` | — | new; the launcher has no feed to read (0.8.0 takes its metadata straight from the stores — see README) |
 | `public/wallpaper.*` | `assets/playhook-wallpaper.jpg` | recompressed (webp q90 + a jpg fallback) |
 | `public/favicon.png` | `assets/icon.png` | 1:1 |
-| `public/sfx/*.ogg` | `audio/ui/playhook-abyss/*.wav` | the launcher's 0.8.0 default set, re-encoded to Vorbis: `ffmpeg -i <slot>.wav -c:a libvorbis -q:a 2 -ar 48000 <slot>.ogg` for the eight slots the site plays (`play`, `move`, `button`, `back`, `limit`, `popup-open`, `popup-close`, `typing`). `notify` is not shipped — nothing here notifies |
+| `public/sfx/<set>/*.ogg` | `audio/ui/<set>/*.wav` | all eighteen of the launcher's 0.8.0 sets, re-encoded to Vorbis: `ffmpeg -i <slot>.wav -c:a libvorbis -q:a 2 -ar 48000 <slot>.ogg` for the eight slots the site plays (`play`, `move`, `button`, `back`, `limit`, `popup-open`, `popup-close`, `typing`). `notify` is not shipped — nothing here notifies |
 | `public/fonts/*.woff2` | `src/renderer/fonts/*.ttf` | **not** the same files — Google Fonts' latin woff2 subsets (96 KB total vs 13.7 MB of CJK TTF); the four `.`/`…` overrides that hand those two glyphs to the fallback font are copied |
 | `eslint.config.mjs`, `.prettierrc.json`, `tsconfig.json` | same names | copied; `types: ["node"]` and the `release/**` ignore dropped, the `test/**` block skipped (there are no tests here) |
 
@@ -74,11 +80,42 @@ and why a public web page cannot.
   the jingle would fall to the autoplay policy until the first gesture anyway. Declined, not deferred —
   which is also why the site's music engine keeps its own gate rather than the launcher's `applyPlayback`
   (that one exists to hold the music behind the jingle).
-- **The Library is the only one of the launcher's four cards.** Nothing on a showcase can notify, there
-  are no settings to open and no machine to power down, so Notifications, Settings and System stay behind
-  and the row carries the Library card alone. With that grid in place the strip's cap of nine
-  (`MAX_STRIP_GAMES`) is applied as the launcher applies it: everything past the ninth entry is reached
-  through the Library, which holds every one of them.
+- **Two of the launcher's four cards are here.** Nothing on a showcase can notify and there is no machine
+  to power down, so Notifications and System stay behind; the row carries **Library** and **Settings**.
+  With that grid in place the strip's cap of nine (`MAX_STRIP_GAMES`) is applied as the launcher applies
+  it: everything past the ninth entry is reached through the Library, which holds every one of them.
+- **Settings keeps the settings a web page can act on, and drops the rest outright.** Not greyed —
+  absent: a screen of dead controls with two live ones says less about the launcher than a short screen
+  that works. What survives is the whole **Audio** section — the sound set, its volume, the ambience
+  track, "only global ambience" and its volume, in the launcher's own order, with its own labels and its
+  own defaults — plus one **General** row. What does not: Updates (nothing here self-updates), Language
+  (the site has no i18n layer at all), the summon hotkey, "keep open without a card", silent install and
+  the Steam Deck auto-launch (no card, no installer, no Steam), and the SteamGridDB key (0.8.0 looks
+  metadata up in the stores; this page looks nothing up).
+- **…and it keeps them in `localStorage`.** The launcher persists to `settings.json` in its userData
+  directory and pushes every change back over IPC; the page writes the same snapshot to first-party
+  storage and hands it straight to the audio controller. Every access is wrapped: a browser in private
+  mode throws on the property, not just on the call, and a settings screen is not worth a blank page. It
+  is strictly functional storage — a preference the user set on this page, read by nobody else — which is
+  why no consent question hangs off it.
+- **"Keep the screen awake" is off by default, and it is the launcher's setting that changes meaning.**
+  There `preventScreensaver` defaults to true and Electron's `powerSaveBlocker` simply holds it, which is
+  right for a fullscreen kiosk the user opened on purpose. A web page that stops the screen from sleeping
+  without being asked is a bad guest, so here it starts off — and the lock itself is a different animal:
+  the browser drops it whenever the document hides, so it is re-taken on `visibilitychange`, and it can be
+  refused outright (an unsupported browser, an insecure origin, a battery saver) with nothing to do about
+  it but keep working (`src/wake-lock.ts`).
+- **The ambience is the launcher's, `idle` rule included.** Its engine resolves `browseMusic ?? cardMusic
+  ?? ambient`; the site has no card, so it resolves two sources instead of three. What is ported verbatim
+  is the DISTINCTION the launcher draws with `setBrowseMusic(url, idle)`: standing on a site card is not
+  the same as an entry with no music of its own. Both end up on the ambience, but a plain `null` would
+  fall through the chain rather than say so. On the site the landing page counts as `idle` too — it is
+  the level above the strip, and the launcher has no such level to have an opinion about.
+- **All eighteen sound sets and all eleven ambience tracks are bundled**, and the build enumerates them
+  into `audio.json` rather than a hand-written list, so a set is added by dropping a folder in
+  `public/sfx`. That mirrors the launcher's own `asset-reader`, which scans its `audio/` directory in main
+  and pushes the answer to the renderer as `AudioOptions`. Only the chosen set and the chosen track are
+  ever fetched; the rest are files on a CDN nobody asks for.
 - **The Library's sections are the site's own.** The launcher splits its games four ways — everything,
   playable right now, on this PC, on a card. Two of those questions have no answer here: nothing is
   installed, so nothing is unavailable, and a section that can never differ from "All" says less than no

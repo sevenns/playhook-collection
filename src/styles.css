@@ -1271,7 +1271,7 @@ html:not(.mouse-asleep) .text-button:hover,
 /* ── Full-screen overlay: the Library ──────────────────────────────────────
    Ported from playhook @ c26fae7 : the launcher builds three screens on this skeleton (Settings,
    Customize, Library) and keys the shared half of the rules off the bare `#app[data-overlay]` attribute
-   so a new screen costs no second copy of them. The site has one screen so far and keeps that shape.
+   so a new screen costs no second copy of them. The site builds the same three on it.
 
    Not a carousel screen: the strip keeps its layout underneath, so returning lands exactly where the
    user left. The hidden state is opacity + pointer-events + visibility + content-visibility, never
@@ -1296,7 +1296,8 @@ html:not(.mouse-asleep) .text-button:hover,
 }
 
 #app[data-overlay='library'] #library,
-#app[data-overlay='game-settings'] #game-settings {
+#app[data-overlay='game-settings'] #game-settings,
+#app[data-overlay='settings'] #settings {
   opacity: 1;
   pointer-events: auto;
   visibility: visible;
@@ -1347,7 +1348,8 @@ html:not(.mouse-asleep) .text-button:hover,
 }
 
 #app[data-overlay='library'] #library .settings-veil,
-#app[data-overlay='game-settings'] #game-settings .settings-veil {
+#app[data-overlay='game-settings'] #game-settings .settings-veil,
+#app[data-overlay='settings'] #settings .settings-veil {
   opacity: 1;
 }
 
@@ -1368,7 +1370,8 @@ html:not(.mouse-asleep) .text-button:hover,
 }
 
 #app[data-overlay='library'] #library .settings-column,
-#app[data-overlay='game-settings'] #game-settings .settings-column {
+#app[data-overlay='game-settings'] #game-settings .settings-column,
+#app[data-overlay='settings'] #settings .settings-column {
   opacity: 1;
   transform: none;
 }
@@ -1835,6 +1838,379 @@ html:not(.mouse-asleep) .setting-row:hover,
 
 .settings-status:empty {
   display: none;
+}
+
+/* ── Settings controls ──────────────────────────────────────────────────────
+   The three row kinds the Settings screen adds to the shared pane: a toggle, a collapsed dropdown and a
+   slider. Ported from playhook @ c26fae7 (row-view-core.ts + its styles) — the row itself, its label box
+   and its focus inversion are already above, so each control is drawn in `currentColor` and inverts with
+   the row rather than carrying a second set of rules for the focused state. */
+
+.setting-toggle {
+  flex: 0 0 auto;
+  width: calc(34 * var(--px));
+  height: calc(34 * var(--px));
+  border: calc(2 * var(--px)) solid currentColor;
+  border-radius: calc(8 * var(--px));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s ease;
+}
+
+.setting-toggle.is-on {
+  background: currentColor;
+}
+
+.setting-check {
+  width: calc(22 * var(--px));
+  height: calc(22 * var(--px));
+  fill: none;
+  stroke: var(--d1);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0;
+  transform: scale(0.6);
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
+}
+
+/* The tick is drawn in whatever the row's BACKGROUND is, and the focused row inverts. */
+.setting-row.is-focused .setting-check,
+html:not(.mouse-asleep) .setting-row:hover .setting-check {
+  stroke: var(--d2);
+}
+
+.setting-toggle.is-on .setting-check {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* Dropdown, collapsed: ‹ value ›. The chevrons are clickable with the mouse; left/right cycle the value
+   from the gamepad without expanding at all. */
+.setting-select {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: calc(12 * var(--px));
+}
+
+.setting-chevron {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(28 * var(--px));
+  height: calc(28 * var(--px));
+  cursor: pointer;
+}
+
+.setting-chevron svg {
+  width: calc(18 * var(--px));
+  height: calc(18 * var(--px));
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+/* The value cell is shared with the Customize screen's rows (above); only the dropdown and the slider
+   animate it, so the transition lives here rather than on the base rule. */
+.setting-select .setting-value,
+.setting-slider .setting-value {
+  transition:
+    opacity 0.12s ease,
+    transform 0.12s ease;
+}
+
+/* The slider's readout is not framed by chevrons — keep it flush right against the track. */
+.setting-slider .setting-value {
+  text-align: right;
+  min-width: calc(90 * var(--px));
+}
+
+/* The direction of a value change is readable: the text slides the way the press went. */
+.setting-value.is-shift-prev {
+  opacity: 0;
+  transform: translateX(calc(10 * var(--px)));
+}
+
+.setting-value.is-shift-next {
+  opacity: 0;
+  transform: translateX(calc(-10 * var(--px)));
+}
+
+/* Slider: a track with a fill and a knob, plus the "N %" readout. */
+.setting-slider {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: calc(20 * var(--px));
+}
+
+.setting-track {
+  position: relative;
+  width: calc(320 * var(--px));
+  height: calc(8 * var(--px));
+  border-radius: calc(4 * var(--px));
+  background: color-mix(in srgb, currentColor 30%, transparent);
+  cursor: pointer;
+}
+
+.setting-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: calc(4 * var(--px));
+  background: currentColor;
+  transition: width 0.12s ease;
+}
+
+.setting-knob {
+  position: absolute;
+  top: 50%;
+  width: calc(24 * var(--px));
+  height: calc(24 * var(--px));
+  margin-left: calc(-12 * var(--px));
+  border-radius: 50%;
+  background: currentColor;
+  transform: translateY(-50%);
+  transition: left 0.12s ease;
+  pointer-events: none;
+}
+
+/* While dragging, the knob must sit under the cursor — a transition here reads as lag, not as polish. */
+.setting-slider.is-dragging .setting-fill,
+.setting-slider.is-dragging .setting-knob {
+  transition: none;
+}
+
+/* ── Expanded dropdown ──────────────────────────────────────────────────────
+   The Settings screen's own layer, on top of it: the focused select's options as a bottom-pinned column.
+   Ported from playhook @ c26fae7. */
+
+.settings-options {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.35s ease;
+}
+
+.settings-options.is-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.settings-options-veil {
+  position: absolute;
+  /* Same as .popup-veil: NOT narrowed. See that rule for why cutting this box at 35% (rather than the
+     ~58% where its own gradient actually saturates) put a visible seam through a focused row. */
+  inset: 0;
+  background: linear-gradient(to right, transparent 0%, var(--d1) 100%);
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 58%);
+  mask-image: linear-gradient(to right, transparent 0%, #000 58%);
+  will-change: opacity;
+}
+
+/* Same split as the popup's: the blur is switched on in one frame, never faded. It sits beside the
+   dropdown rather than inside it, because that container fades as a whole. */
+.settings-options-blur {
+  position: absolute;
+  /* Same narrowing as .popup-blur — half the pixels to sample, identical result on screen. */
+  left: 35%;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  backdrop-filter: blur(12px);
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 36%);
+  mask-image: linear-gradient(to right, transparent 0%, #000 36%);
+  opacity: 0;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.settings.is-options-open .settings-options-blur {
+  opacity: 1;
+}
+
+/* The column mirrors .popup-column: 550 wide, inset 50, right-aligned, stack pinned to the bottom —
+   and it scrolls exactly like the settings list behind it, edge fades included (sizes from JS). */
+.settings-options-list {
+  position: absolute;
+  right: calc(50 * var(--px));
+  top: calc(50 * var(--px));
+  bottom: calc(50 * var(--px));
+  width: calc(550 * var(--px));
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: calc(8 * var(--px));
+  overflow-y: auto;
+  scrollbar-width: none;
+  transform: translateX(calc(40 * var(--px)));
+  transition: transform 0.35s ease;
+  will-change: transform;
+  --fade-top: 0px;
+  --fade-bottom: 0px;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 var(--fade-top),
+    #000 calc(100% - var(--fade-bottom)),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 var(--fade-top),
+    #000 calc(100% - var(--fade-bottom)),
+    transparent 100%
+  );
+}
+
+/* Bottom-pinned via an auto margin on the FIRST option, not `justify-content: flex-end`: that keeps a
+   list longer than the column scrollable to its start, where flex-end would push the overflow out of
+   reach above the scroll origin. With enough options the margin collapses to zero on its own. */
+.settings-options-list > .settings-option:first-child {
+  margin-top: auto;
+}
+
+.settings-options-list::-webkit-scrollbar {
+  display: none;
+}
+
+.settings-options.is-open .settings-options-list {
+  transform: none;
+}
+
+/* …and its options arrive behind it exactly as the popup stack's items do: the column slides in as a
+   whole, the entries follow one after another, BOTTOM-UP — this list is pinned to the bottom and opens
+   with the current value in view, so what the user is already looking at arrives first. */
+.settings-options.is-open .settings-option {
+  animation: popup-item-in 0.3s cubic-bezier(0.2, 0, 0.2, 1) both;
+  animation-delay: calc(0.12s + var(--pop, 0) * 45ms);
+}
+.settings-options.is-open .settings-option:nth-last-child(2) {
+  --pop: 1;
+}
+.settings-options.is-open .settings-option:nth-last-child(3) {
+  --pop: 2;
+}
+.settings-options.is-open .settings-option:nth-last-child(4) {
+  --pop: 3;
+}
+.settings-options.is-open .settings-option:nth-last-child(5) {
+  --pop: 4;
+}
+.settings-options.is-open .settings-option:nth-last-child(6) {
+  --pop: 5;
+}
+.settings-options.is-open .settings-option:nth-last-child(n + 7) {
+  --pop: 6;
+}
+
+/* An option IS a .text-button, down to the focus inversion — only the alignment differs (a long label
+   grows left, like every popup stack item). */
+.settings-option {
+  height: calc(92 * var(--px));
+  flex: 0 0 auto;
+  min-width: calc(184 * var(--px));
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 calc(32 * var(--px));
+  border: none;
+  border-radius: calc(10 * var(--px));
+  background: transparent;
+  color: var(--d2);
+  font-family: inherit;
+  font-weight: 500;
+  font-size: calc(28 * var(--px));
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+
+/* The label's window + a moving inner span. A label too long for the column is hard-clipped with a soft
+   fade at the cut, and only the FOCUSED option scrolls, so the list doesn't crawl. No ellipsis anywhere:
+   the bundled font draws it as three mid-height dots. */
+.settings-option-clip {
+  /* `0 1 auto` + min-width:0 — sized by the text, but allowed to shrink once the button hits its cap;
+     that shrink is what produces the clip. */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  --fade: calc(8 * var(--px));
+}
+
+/* Clipped but not scrolling: an overflowing label is laid out from its start, so the cut is on the
+   RIGHT — that edge fades. */
+.settings-option.is-clipped .settings-option-clip {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - var(--fade)), transparent 100%);
+  mask-image: linear-gradient(to right, #000 calc(100% - var(--fade)), transparent 100%);
+}
+
+/* While it scrolls, both edges fade so the text enters and leaves softly on either side. */
+.settings-option.is-scrolling .settings-option-clip {
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 var(--fade),
+    #000 calc(100% - var(--fade)),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 var(--fade),
+    #000 calc(100% - var(--fade)),
+    transparent 100%
+  );
+}
+
+.settings-option-text {
+  display: inline-block;
+  white-space: nowrap;
+  will-change: transform;
+}
+
+/* Ping-pong marquee: shift + per-label duration come from JS (measured overflow at a constant speed);
+   `alternate` runs to the end and back, `ease-in-out` dwells at each edge so both ends are readable. */
+.settings-option.is-scrolling .settings-option-text {
+  animation: option-marquee var(--marquee-duration, 6s) ease-in-out infinite alternate;
+}
+
+@keyframes option-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(var(--marquee-shift, 0));
+  }
+}
+
+html:not(.mouse-asleep) .settings-option:hover,
+.settings-option.is-focused {
+  background: var(--d2);
+  color: var(--d1);
+}
+
+.settings-option.is-pressed {
+  transform: scale(0.9);
+}
+
+/* The current value is marked even when the focus is elsewhere in the list. The rule sits on the TEXT,
+   not on the button: text-decoration does not propagate into an inline-block descendant, and the label
+   became one when it was wrapped for the marquee. */
+.settings-option.is-current .settings-option-text {
+  text-decoration: underline;
+  text-underline-offset: calc(8 * var(--px));
 }
 
 /* ── On-screen keyboard ─────────────────────────────────────────────────────

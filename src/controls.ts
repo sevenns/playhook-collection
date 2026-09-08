@@ -43,7 +43,10 @@ const ENTRY_URL_PREFIX = 'https://github.com/sevenns/playhook-collection/tree/ma
 type PopupView = 'none' | 'details' | 'confirm';
 
 /** Which action the confirm view is asking about (only meaningful while popupView === 'confirm'). */
-type ConfirmMode = 'kill' | 'forget' | 'discard';
+type ConfirmMode = 'kill' | 'forget' | 'discard' | 'reset';
+
+/** The launcher's own wording for the Settings column's Reset (`settings.confirmReset`). */
+const RESET_QUESTION = 'Reset all settings to defaults?';
 
 /** The launcher's own wording for leaving a form with unsaved edits (`gameSettings.confirmDiscard`). */
 const DISCARD_QUESTION = 'Discard the changes?';
@@ -80,6 +83,7 @@ export interface ControlsDeps {
   readonly library: LibraryNav;
   /** Customize (in add mode) — the second screen at that same level; never both open at once. */
   readonly gameSettings: GameSettingsNav;
+  readonly settings: SettingsNav;
   /** The pretend game session Play starts and Force close ends. */
   readonly session: SessionController;
   /**
@@ -114,6 +118,12 @@ export interface GameSettingsNav extends NavSurface {
   close(silent?: boolean): void;
 }
 
+/** …and for the Settings screen, the third one. */
+export interface SettingsNav extends NavSurface {
+  open(): void;
+  close(silent?: boolean): void;
+}
+
 export interface Controls {
   /** New catalogue data (or a load state) for the Github link and the Go back / Collection item. */
   setCollection(state: ListState, entries: readonly CollectionEntry[]): void;
@@ -129,6 +139,8 @@ export interface Controls {
   openAddGame(): void;
   /** A screen asked its discard question; the answer comes back through `onYes`. */
   confirmDiscard(onYes: () => void): void;
+  /** …and its reset question, from the Settings screen's own column. */
+  confirmReset(onYes: () => void): void;
   /** A full-screen screen closed itself — put the bar highlight back on the More button it came from. */
   screenClosed(): void;
   /** Starts the gamepad polling loop. */
@@ -148,9 +160,11 @@ export function createControls(deps: ControlsDeps): Controls {
     active: (): NavSurface | null => {
       if (deps.library.isOpen()) return deps.library;
       if (deps.gameSettings.isOpen()) return deps.gameSettings;
+      if (deps.settings.isOpen()) return deps.settings;
       return null;
     },
-    isAnyOpen: (): boolean => deps.library.isOpen() || deps.gameSettings.isOpen(),
+    isAnyOpen: (): boolean =>
+      deps.library.isOpen() || deps.gameSettings.isOpen() || deps.settings.isOpen(),
   };
 
   // The glide step the strip animates one held move over (styles.css reads it as --flip-step). Slightly
@@ -461,7 +475,7 @@ export function createControls(deps: ControlsDeps): Controls {
 
   /** The force-close question. One step deeper than Details, and B / No / the veil return there. */
   function openConfirm(mode: ConfirmMode, question: string): void {
-    confirmReturnTo = mode === 'discard' ? 'screen' : 'details';
+    confirmReturnTo = mode === 'discard' || mode === 'reset' ? 'screen' : 'details';
     // A question raised by a screen opens the popup from scratch — there is no menu open underneath it.
     if (popupView === 'none') {
       audio.play('popup-open');
@@ -677,7 +691,7 @@ export function createControls(deps: ControlsDeps): Controls {
         session.requestKill();
         return;
       }
-      if (mode === 'discard') {
+      if (mode === 'discard' || mode === 'reset') {
         pending?.();
         return;
       }
@@ -1119,6 +1133,11 @@ export function createControls(deps: ControlsDeps): Controls {
       openConfirm('discard', DISCARD_QUESTION);
     },
 
+    confirmReset(onYes: () => void): void {
+      pendingConfirm = onYes;
+      openConfirm('reset', RESET_QUESTION);
+    },
+
     openSystemCard(id: SystemCardId): void {
       // A switch with an exhaustive default, not an if: a card added to SYSTEM_CARDS and forgotten here
       // would otherwise fall through silently, and no type would have caught it.
@@ -1126,6 +1145,9 @@ export function createControls(deps: ControlsDeps): Controls {
         case 'library':
           // The card's own `button` (main.ts) is this press's sound; the screen adds none of its own.
           deps.library.open();
+          break;
+        case 'settings':
+          deps.settings.open();
           break;
         default: {
           const exhaustive: never = id;

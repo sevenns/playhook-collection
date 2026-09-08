@@ -12,7 +12,9 @@ Two things live here:
    carousel of covers, and picking an entry previews it the way the launcher would — that entry's hero
    images rotating, its own background music. The Library card at the end of the row opens the whole
    catalogue as a grid, and its "Add game" builds an entry from files on your own disk — that one lives
-   in the tab, and a reload takes it away.
+   in the tab, and a reload takes it away. The Settings card beside it opens the launcher's own Audio
+   settings, with all eighteen of its navigation sound sets and all eleven of its ambience tracks; those
+   are kept in the browser and outlive a reload.
 2. **The collection** — ready-made `game.json` manifests per game (hero images, the carousel cover, save
    paths, titles), so you don't have to write one from scratch. See
    [collection/README.md](collection/README.md).
@@ -48,7 +50,7 @@ npm run typecheck && npm run lint
 ```
 
 There are no tests. The launcher keeps the vitest suite for the parts that actually decide things; here
-the gates are typecheck, lint, a build that validates every manifest, and looking at the five screens.
+the gates are typecheck, lint, a build that validates every manifest, and looking at the screens.
 
 ## Adding a collection entry
 
