@@ -16,8 +16,10 @@ Two things live here:
    [collection/README.md](collection/README.md).
 
 The site is the first consumer of the collection's own JSON feed (`api/v1/index.json`), which is
-generated on every build and is the same address the launcher's Configure window will point at. That way
-the feed is exercised by every deploy instead of "later".
+generated on every build — so the feed is exercised by every deploy instead of "later". It is also,
+so far, the only one: Playhook 0.8.0 takes a game's metadata straight from the stores (Steam, GOG,
+SteamGridDB and friends) and does not read this feed. Wiring the launcher to it is a separate
+conversation; the feed is kept honest in the meantime.
 
 No framework, no runtime dependencies: one HTML file, one stylesheet, one bundled script. The UI code is
 vendored from the launcher — see [PORTED-FROM.md](PORTED-FROM.md) for what was copied, what was
@@ -50,8 +52,8 @@ the gates are typecheck, lint, a build that validates every manifest, and lookin
 
 Read [collection/README.md](collection/README.md) first. In short: create `collection/<slug>/` with
 `game.json`, `meta.json` and an `assets/` directory, keep the assets web-sized (they are downloaded by
-anyone who opens the preview), and open the manifest in Playhook's Configure window before claiming it
-works. `npm run build` validates every manifest against `schema/game.schema.json` and fails on a bad
+anyone who opens the preview), and drop the entry on a card and insert it into Playhook before claiming
+it works. `npm run build` validates every manifest against `schema/game.schema.json` and fails on a bad
 one, so a broken entry never reaches the feed.
 
 ## Deploy
