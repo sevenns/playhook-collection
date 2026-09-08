@@ -83,6 +83,9 @@ function applyEntry(entry: CollectionEntry, onCarousel: boolean): void {
 /** The hold is over: release what waited for it — the covers, the hero and the bar title. */
 function settleFlip(): void {
   stripFlipping = false;
+  // In PARALLEL, not in sequence: the covers, the picture and the name all belong to the same card, and
+  // arriving one after another would read as the screen assembling itself.
+  hero.setFlipping(false);
   carousel.setFlipping(false);
   if (!titleHeld) return;
   titleHeld = false;
@@ -99,6 +102,7 @@ function onFlipping(flipping: boolean): void {
       flipSettleTimer = 0;
     }
     stripFlipping = true;
+    hero.setFlipping(true);
     carousel.setFlipping(true);
     return;
   }
