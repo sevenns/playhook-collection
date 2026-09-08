@@ -349,6 +349,44 @@ body {
   margin: 0 calc(16 * var(--px));
 }
 
+/* The focus indicator: a soft body lying UNDER the selected cover rather than a ring drawn around it.
+   A ring has to blink out on the card the selection leaves and in on the one it arrives at; one body per
+   surface travels between them, breathing where it stands. It is drawn on a canvas (focus-jelly.ts) —
+   the contour genuinely deforms, which no amount of border-radius can fake.
+
+   The canvas rides INSIDE the strip, so the row's slide, its fades and its hiding all carry it for free,
+   exactly as the ring's element used to be carried. It is the strip's first child and `position:
+   absolute`, so it is no part of the flex row. The 26 is JELLY.margin in focus-jelly.ts. */
+#carousel-jelly {
+  position: absolute;
+  left: calc(-26 * var(--px));
+  /* Pinned to the row's TOP, not its floor: the strip's height follows the tallest card, so it shrinks
+     and grows all through a move — anchored at the bottom, the canvas would slide against the very
+     offsetTop values drawn onto it. The top edge does not move, and the canvas is tall enough for the
+     grown card either way (see stripCanvas). */
+  top: calc(-26 * var(--px));
+  pointer-events: none;
+  /* Under the covers, over the wallpaper. The cards carry no z-index of their own, so a plain 0 here
+     puts the body behind every one of them. */
+  z-index: 0;
+}
+
+/* On the entry screen the strip is fading out — a breathing body underneath it would be noise. */
+#app[data-screen='detail'] #carousel-jelly {
+  opacity: 0;
+}
+
+/* Coming back from an entry the body waits for the CARD, and the delay is 0.35s rather than the --morph
+   the container uses — the two are not the same moment, which is what made the hand-back blink. The
+   container switches on at 0.24s while the selected card stays transparent until 0.35s (it swaps in
+   opaque as the play button goes, see .card.is-selected below). Started at 0.24s the body spent those
+   110ms alone on screen under a button that had not finished growing — a flash of colour where the cover
+   was about to be. Now both arrive in the same frame. */
+#app[data-screen='carousel'] #carousel-jelly {
+  opacity: 1;
+  transition: opacity 0.2s ease 0.35s;
+}
+
 /* The title placeholder shown until the cover arrives (an entry may have none at all). */
 .card-label {
   position: absolute;
