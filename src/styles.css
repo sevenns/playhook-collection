@@ -387,6 +387,26 @@ body {
   transition: opacity 0.2s ease 0.35s;
 }
 
+/* The site's own card (Library): no cover, a solid d2 plate with the glyph punched out of it in d1 —
+   the same inversion the focused rect-button uses. Selected, it grows to 136x204 from the base rule like
+   any other card; its name appears in the bar's title line, not on it. */
+.card.is-system {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--d2);
+  background-image: none;
+  color: var(--d1);
+}
+
+/* ~48 design px, the size the icon was exported at. currentColor, so the glyph follows the palette
+   through the plate above rather than carrying a colour of its own. */
+.card-icon {
+  width: calc(48 * var(--px));
+  height: calc(48 * var(--px));
+  fill: currentColor;
+}
+
 /* The title placeholder shown until the cover arrives (an entry may have none at all). */
 .card-label {
   position: absolute;
