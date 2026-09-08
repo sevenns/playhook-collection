@@ -2,6 +2,7 @@
 // no main process here, so all twenty-odd window.api subscriptions (state, hero payloads, audio assets,
 // volumes, locale, window focus) are gone. What replaces them is one fetch of the site's own collection
 // feed, and a single applyRoute() that hands the resulting entry to the four subsystems.
+import { AUTO_CHAIN_MS, NAV_REPEAT_MS } from './auto-repeat.js';
 import { createAudioController } from './audio.js';
 import { createCarousel } from './carousel.js';
 import { createControls } from './controls.js';
@@ -29,6 +30,18 @@ const FEED_ERROR_STATUS = 'Collection unavailable';
 const HERO_PARALLAX_STEP = 8;
 const HERO_PARALLAX_MAX = 24;
 
+/**
+ * How long after a release the run is still treated as GOING. Letting go for a beat and pressing again
+ * is one continuous auto-move to the user (auto-repeat.ts chains the two), and everything that waits for
+ * the flip to end is expensive: the hero swap is a cross-fade, the palette rides along with it, and the
+ * carousel fetches the covers around wherever it stopped. Firing all of that into every gap of a rapid
+ * press-release-press is exactly what made the background stutter.
+ *
+ * The window has to outlast the chain itself PLUS the first repeat of the new run — that is when the
+ * flip is reported as started again — or a swap would slip through on the boundary.
+ */
+const FLIP_SETTLE_MS = AUTO_CHAIN_MS + NAV_REPEAT_MS;
+
 const app = req('app');
 const audio = createAudioController();
 const router = createRouter();
@@ -40,13 +53,60 @@ let entries: readonly CollectionEntry[] = [];
 /** Whether the hash asks for the carousel (`#/collection`). Mirrored from the router's own callback. */
 let wantsCollection = false;
 let heroParallax = 0;
+// A direction is being held. While it is, the bar keeps the name it had rather than being rewritten on
+// every step: at the repeat cadence that is a name flashing nine times a second next to a row that is
+// still moving, and nobody can read it anyway — and the hero holds its picture the same way, so the two
+// never disagree. The end of the run brings both in, for the card the row came to rest on.
+let stripFlipping = false;
+/** Whether a browse title arrived during the hold and is waiting for the run to end. */
+let titleHeld = false;
+/** Pending "the run is really over" (see FLIP_SETTLE_MS); 0 when the strip is at rest or flipping. */
+let flipSettleTimer = 0;
+
+/** The name the strip is standing on — written at once, or held until the flip settles (see above). */
+function setBrowseTitle(title: string): void {
+  if (stripFlipping) {
+    titleHeld = true;
+    return;
+  }
+  router.setBrowseCopy(title);
+}
 
 /** Everything the entry on screen owns: the bar copy, the hero images and the music. */
 function applyEntry(entry: CollectionEntry, onCarousel: boolean): void {
-  if (onCarousel) router.setBrowseCopy(entry.title);
+  if (onCarousel) setBrowseTitle(entry.title);
   else router.setGameCopy(entry.title, entry.title);
   hero.showGame(entry.slug, entry.heroUrls);
   audio.setGameMusic(entry.music);
+}
+
+/** The hold is over: release what waited for it — the covers, the hero and the bar title. */
+function settleFlip(): void {
+  stripFlipping = false;
+  carousel.setFlipping(false);
+  if (!titleHeld) return;
+  titleHeld = false;
+  // Re-read rather than replayed: the route may have moved on during the hold (A opens an entry, whose
+  // own screen writes its own copy), and only a strip still on screen has a name to put in the bar.
+  const selected = carousel.screen() === 'carousel' ? carousel.selected() : undefined;
+  if (selected !== undefined) router.setBrowseCopy(selected.title);
+}
+
+function onFlipping(flipping: boolean): void {
+  if (flipping) {
+    if (flipSettleTimer !== 0) {
+      window.clearTimeout(flipSettleTimer);
+      flipSettleTimer = 0;
+    }
+    stripFlipping = true;
+    carousel.setFlipping(true);
+    return;
+  }
+  if (flipSettleTimer !== 0) return;
+  flipSettleTimer = window.setTimeout(() => {
+    flipSettleTimer = 0;
+    settleFlip();
+  }, FLIP_SETTLE_MS);
 }
 
 /** Nothing (or nothing yet) on screen: back to the wallpaper and silence. */
@@ -92,6 +152,7 @@ const controls = createControls({
   session,
   browsedSlug: () => browsedSlug(),
   onForget: (slug) => forgetEntry(slug),
+  onFlipping,
 });
 
 /** Which entry the bar is describing right now: its own screen, or the card the strip is standing on. */

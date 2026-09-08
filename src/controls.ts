@@ -2,8 +2,8 @@
 // the popup's vertical stack) and everything that drives them — clicks, hover, wheel, gamepad, keyboard,
 // and the idle timeout.
 //
-// Written by hand against playhook @ 4461c60e75e18d98d77e80e70b9394e0bd0731a5 : src/renderer/controls.ts
-// rather than trimmed down from it: of its 1000-odd lines only the parts with something left to do here
+// Written by hand against playhook @ c26fae7 (release/v0.8.0) : src/renderer/controls.ts
+// rather than trimmed down from it: of its 2000-odd lines only the parts with something left to do here
 // survive, and a "reduced port" would have dragged along abstractions with nothing to abstract (the
 // ControlsDeps state/translator seam, the confirm/error/power views, the multi-game card model). The
 // behaviour it does keep — bottom-anchored default focus, cyclic vertical navigation and CLAMPED
@@ -16,7 +16,8 @@
 // :focus-visible lands on the same control the highlight is on. The launcher suppresses Tab entirely —
 // it has no keyboard user to serve. The idle timeout therefore dims ONLY the custom highlight: taking
 // :focus-visible away too would leave a keyboard user with no marker of where they were mid-read.
-import { NAV_REPEAT_MS, createGamepadController } from './gamepad.js';
+import { HOLD_DELAY_MS, NAV_REPEAT_MS, createAutoRepeatChain } from './auto-repeat.js';
+import { createGamepadController } from './gamepad.js';
 import { type AudioController } from './audio.js';
 import { type Router } from './router.js';
 import { type CollectionEntry, type ListState } from './collection.js';
@@ -80,6 +81,12 @@ export interface ControlsDeps {
   readonly browsedSlug: () => string | null;
   /** "Remove from history" was confirmed for this slug. The entries are main's, so the removal is too. */
   readonly onForget: (slug: string) => void;
+  /**
+   * A direction is being HELD, i.e. the strip is flipping on its own (true), or it has just been let go
+   * (false). The hero, the carousel's cover loading and the bar title all hold still for the duration —
+   * main.ts owns the settle window (see FLIP_SETTLE_MS there).
+   */
+  readonly onFlipping: (flipping: boolean) => void;
 }
 
 export interface Controls {
@@ -97,6 +104,17 @@ export interface Controls {
 
 export function createControls(deps: ControlsDeps): Controls {
   const { audio, router, carousel, session } = deps;
+
+  // The glide step the strip animates one held move over (styles.css reads it as --flip-step). Slightly
+  // LONGER than the repeat itself, on purpose: the keyboard's repeats arrive on a timer and their real
+  // spacing wanders above NAV_REPEAT_MS. A step that outlasts the gap overlaps the next one and the row
+  // never stalls between them; an exact match would leave tiny holes. The CSS value is only the fallback.
+  const FLIP_STEP_MS = Math.round(NAV_REPEAT_MS * 1.3);
+  document.documentElement.style.setProperty('--flip-step', `${FLIP_STEP_MS}ms`);
+
+  // The shared warmth of an auto-move, so a run handed from one direction to the next — or from the pad
+  // to the keyboard — skips the initial delay instead of stalling (auto-repeat.ts).
+  const autoRepeat = createAutoRepeatChain();
 
   const app = req('app');
   const playButton = req<HTMLButtonElement>('play-button');
@@ -666,18 +684,58 @@ export function createControls(deps: ControlsDeps): Controls {
   // when it is open, then the carousel strip, then the bar.
   const onCarousel = (): boolean => popupView === 'none' && carousel.screen() === 'carousel';
 
-  function navLeft(): void {
+  // ── Held directions ────────────────────────────────────────────────────────
+  // A repeat press means a direction is being held. It ends on an explicit release — the pad reports one
+  // (onDirectionsReleased), the keyboard has keyup — but neither is guaranteed to arrive: the window can
+  // lose focus mid-hold and swallow the keyup, and a pad can be unplugged. So a watchdog closes it too,
+  // renewed on every repeat; at the repeat cadence (NAV_REPEAT_MS) this silence can only mean a stop.
+  const FLIP_WATCHDOG_MS = 400;
+  let flipping = false;
+  let flipWatchdog = 0;
+
+  function noteFlip(): void {
+    if (flipWatchdog !== 0) window.clearTimeout(flipWatchdog);
+    flipWatchdog = window.setTimeout(endFlip, FLIP_WATCHDOG_MS);
+    if (flipping) return;
+    flipping = true;
+    deps.onFlipping(true);
+  }
+
+  function endFlip(): void {
+    if (flipWatchdog !== 0) {
+      window.clearTimeout(flipWatchdog);
+      flipWatchdog = 0;
+    }
+    if (!flipping) return;
+    flipping = false;
+    deps.onFlipping(false);
+  }
+
+  /** Everything that ends when the input is let go. Both halves of the release detection (the pad's
+   *  onDirectionsReleased, the keyboard's keyup) come through here. */
+  function endInput(): void {
+    endFlip();
+  }
+
+  // `repeat` marks a press produced by the hold auto-repeat rather than by a fresh one. A held left/right
+  // flips the strip (and is what starts the flip spell); a held up/down runs the popup stack like any
+  // other vertical list — it wraps, so there is no edge to stop at.
+  function navLeft(repeat = false): void {
+    if (repeat) noteFlip();
     if (onCarousel()) carousel.move(-1);
     else moveFocus(-1);
   }
-  function navRight(): void {
+  function navRight(repeat = false): void {
+    if (repeat) noteFlip();
     if (onCarousel()) carousel.move(1);
     else moveFocus(1);
   }
-  function navUp(): void {
+  function navUp(repeat = false): void {
+    if (repeat) noteFlip();
     moveStackFocus(-1);
   }
-  function navDown(): void {
+  function navDown(repeat = false): void {
+    if (repeat) noteFlip();
     moveStackFocus(1);
   }
   function navActivate(): void {
@@ -707,20 +765,38 @@ export function createControls(deps: ControlsDeps): Controls {
 
   // Both input models count as activity (and hide the cursor: the user has switched device).
   const withActivity =
-    (nav: () => void): (() => void) =>
-    (): void => {
+    (nav: (repeat: boolean) => void): ((repeat?: boolean) => void) =>
+    (repeat = false): void => {
       noteNavActivity();
-      nav();
+      nav(repeat);
     };
 
-  const gamepad = createGamepadController({
-    onLeft: withActivity(navLeft),
-    onRight: withActivity(navRight),
-    onUp: withActivity(navUp),
-    onDown: withActivity(navDown),
-    onA: withActivity(navActivate),
-    onB: withActivity(navBack),
-  });
+  /**
+   * The buttons the launcher gives to its overlay screens (Y, X, the shoulders, RT) have no surface to
+   * drive here — there is no keyboard, no file picker, no Settings. They stay in the contract so the
+   * gamepad module is a 1:1 copy, and count as activity so a press still wakes the highlight.
+   */
+  function navUnclaimed(): void {
+    noteNavActivity();
+  }
+
+  const gamepad = createGamepadController(
+    {
+      onLeft: withActivity(navLeft),
+      onRight: withActivity(navRight),
+      onUp: withActivity(navUp),
+      onDown: withActivity(navDown),
+      onA: withActivity(navActivate),
+      onB: withActivity(navBack),
+      onY: navUnclaimed,
+      onX: navUnclaimed,
+      onShoulderLeft: navUnclaimed,
+      onShoulderRight: navUnclaimed,
+      onTriggerRight: navUnclaimed,
+      onDirectionsReleased: endInput,
+    },
+    autoRepeat,
+  );
 
   // The wheel flips through the carousel. Throttled: one notch of a mouse wheel is one event, but a
   // trackpad emits a stream of them, which would fly past a dozen cards per gesture.
@@ -745,7 +821,7 @@ export function createControls(deps: ControlsDeps): Controls {
   // six primitives as the gamepad. Unlike the launcher, Tab is NOT bound to "back": on a public page it
   // has to keep doing what every keyboard user expects, and the focus sync above makes it agree with the
   // highlight.
-  const KEY_NAV: Readonly<Record<string, () => void>> = {
+  const KEY_NAV: Readonly<Record<string, (repeat: boolean) => void>> = {
     a: navLeft,
     arrowleft: navLeft,
     d: navRight,
@@ -759,12 +835,45 @@ export function createControls(deps: ControlsDeps): Controls {
     backspace: navBack,
     escape: navBack,
   };
-  // Left/right are the exception to the edge model: holding them flips through the carousel, matching the
-  // gamepad's hold-to-repeat. The OS auto-repeat supplies the events (its own initial delay is close
-  // enough to the pad's), but its rate is far too fast for a carousel, so it is throttled to the same
-  // NAV_REPEAT_MS cadence. Every other key stays one action per press.
-  const REPEATABLE_KEYS = new Set(['a', 'arrowleft', 'd', 'arrowright']);
-  let lastKeyRepeatAt = 0;
+  // The four directions are the exception to the edge model: holding one flips through the carousel or
+  // runs through a popup stack, matching the gamepad's hold-to-repeat. The repeat is OURS, on a timer —
+  // the OS supplies its own, but at a rate and an initial delay that are the user's system settings, not
+  // ours, so the two input models would drift apart (and chaining one run into the next would be
+  // impossible: the OS restarts its full delay on every new key). Native repeats are dropped. Every other
+  // key stays one action per press.
+  const REPEATABLE_KEYS = new Set([
+    'a',
+    'arrowleft',
+    'd',
+    'arrowright',
+    'w',
+    'arrowup',
+    's',
+    'arrowdown',
+  ]);
+  // The key whose repeat is running, and its timer. Only one at a time: with two directions down the
+  // last one pressed owns the run, which is what a keyboard's own repeat does too.
+  let heldKey: string | null = null;
+  let keyRepeatTimer = 0;
+
+  function stopKeyRepeat(): void {
+    if (keyRepeatTimer !== 0) {
+      window.clearTimeout(keyRepeatTimer);
+      keyRepeatTimer = 0;
+    }
+    heldKey = null;
+  }
+
+  function scheduleKeyRepeat(key: string, handler: (repeat: boolean) => void, delay: number): void {
+    keyRepeatTimer = window.setTimeout(() => {
+      keyRepeatTimer = 0;
+      if (heldKey !== key) return;
+      autoRepeat.noteRepeat(performance.now());
+      noteNavActivity();
+      handler(true);
+      scheduleKeyRepeat(key, handler, NAV_REPEAT_MS);
+    }, delay);
+  }
 
   window.addEventListener('keydown', (event) => {
     const key = event.key.toLowerCase();
@@ -773,14 +882,29 @@ export function createControls(deps: ControlsDeps): Controls {
     // Suppress the native default (arrow scroll, Space scroll, and the native click a focused button
     // would fire on Enter/Space — which would double-trigger alongside navActivate).
     event.preventDefault();
-    if (event.repeat) {
-      if (!REPEATABLE_KEYS.has(key)) return;
-      const now = performance.now();
-      if (now - lastKeyRepeatAt < NAV_REPEAT_MS) return;
-      lastKeyRepeatAt = now;
-    }
+    if (event.repeat) return; // the OS cadence is not ours — the timer below drives the run
     noteNavActivity();
-    handler();
+    handler(false);
+    if (!REPEATABLE_KEYS.has(key)) return;
+    stopKeyRepeat(); // a second direction takes the run over from the first
+    heldKey = key;
+    // A key taken up while the previous run is still warm continues it, delay skipped — same rule as the
+    // pad's (auto-repeat.ts), so swinging left→right glides on either device.
+    const now = performance.now();
+    scheduleKeyRepeat(key, handler, autoRepeat.continues(now) ? NAV_REPEAT_MS : HOLD_DELAY_MS);
+  });
+  // The keyboard's half of "the hold is over". A keyup can be missed (the window loses focus mid-hold and
+  // the release goes to whoever took it), which is what the watchdog in noteFlip covers — and the blur
+  // below, which also has to stop a timer nobody would otherwise turn off.
+  window.addEventListener('keyup', (event) => {
+    const key = event.key.toLowerCase();
+    if (heldKey === key) stopKeyRepeat();
+    if (REPEATABLE_KEYS.has(key)) endInput();
+  });
+  window.addEventListener('blur', () => {
+    if (heldKey === null) return;
+    stopKeyRepeat();
+    endInput();
   });
 
   applyMenuLibrary();
