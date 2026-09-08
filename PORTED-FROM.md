@@ -72,6 +72,14 @@ and why a public web page cannot.
   first — same question, same wording, same safe default (No, the bottom button). The launcher's error
   and power views have nothing to describe here, and its confirm also carries an install-path note that
   a site which installs nothing does not need.
+- **Remove from history lasts until a reload.** The launcher's item deletes a record it keeps on disk
+  (`library/index.json` plus the artwork copied for that game) and offers itself only for a game that is
+  not available right now — one whose card is out and which is not a local game. Here the catalogue IS the
+  fetched feed, so the removal can only live in memory, and the question says so instead of the launcher's
+  promise about saves and cards. Of its "not available right now" rule what survives is that a RUNNING
+  entry cannot be removed: dropping the game you are playing would leave a session pointing at a card that
+  no longer exists. The item follows the BROWSED entry, so it works on an entry screen and on the strip
+  alike — the launcher's does the same, its browse model being what the bar describes there too.
 - **The carousel lives OVER the landing page**, switched on by the Collection menu item (`#/collection`).
   In the launcher it is the top-level screen with the bar screen below it; here the landing page is the
   top level, so `data-screen` gains a third value that carries no attribute at all. It also means B on
