@@ -8,10 +8,14 @@
          palette/hero code only ever writes through the CSSOM (element.style.setProperty).
          `connect-src 'self'` is what lets the page fetch its own collection feed (api/v1/index.json):
          default-src 'none' covers connect-src too, and without this the fetch fails with nothing on
-         screen but an empty list — see collection.ts. -->
+         screen but an empty list — see collection.ts.
+         `blob:` on img-src and media-src is what a file the user picks in "Add game" becomes: the
+         browser mints a blob URL for it, and without these two the cover and the music of an entry made
+         on this page would be blocked. It admits nothing from the network — a blob URL can only name
+         something this document itself created. -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; img-src 'self'; media-src 'self'; style-src 'self'; font-src 'self'; script-src 'self'; connect-src 'self';"
+      content="default-src 'none'; img-src 'self' blob:; media-src 'self' blob:; style-src 'self'; font-src 'self'; script-src 'self'; connect-src 'self';"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Playhook - bring console vibes to your PC</title>
@@ -120,6 +124,26 @@
         </div>
       </section>
 
+      <!-- Customize, in the one mode the site can offer: ADD. Structurally the Library's twin (the same
+           veil + column + sidebar skeleton), whose pane holds rows rather than covers. The launcher's
+           screen edits a game.json on a card; this one collects what a catalogue ENTRY is made of, and
+           what it makes lives in memory until the page is reloaded. -->
+      <section id="game-settings" class="settings" aria-hidden="true">
+        <div class="settings-veil"></div>
+        <div class="settings-column">
+          <div class="settings-header">
+            <div class="settings-title">Add game</div>
+          </div>
+          <div class="settings-body">
+            <div class="settings-nav" id="game-settings-nav"></div>
+            <div class="settings-list" id="game-settings-list"></div>
+          </div>
+          <!-- What stands between this draft and Save: it belongs to the SCREEN, not to any one section,
+               so it sits under both columns and stays readable wherever the focus is. -->
+          <div class="settings-status" id="game-settings-status"></div>
+        </div>
+      </section>
+
       <!-- Menu popup: ONE frosted veil + ONE right-side column (450px), same component as the launcher's,
            with one of its four views. Default focus is the BOTTOM button — see controls.ts.
            `inert` while closed: the column only fades out via opacity, so without it the buttons would
@@ -145,7 +169,7 @@
                the right edge stays fixed. -->
           <div class="popup-actions">
             <!-- ORDER MATTERS, and it is the launcher's: the items that APPEAR AND DISAPPEAR with the
-                 session (Force close, Remove from history) are at the TOP, and the ones that are always
+                 session (Force close, Remove from library) are at the TOP, and the ones that are always
                  there sit in a fixed block just above Close. The stack is bottom-focused and
                  bottom-anchored, so anything volatile near the bottom would shift the stable items
                  under the user's thumb between visits. -->
@@ -153,11 +177,12 @@
               <!-- Force close: the only way out of a session. Shown while one is RUNNING and not
                    already closing down — exactly the launcher's rule (see controls.ts). -->
               <button id="menu-kill" class="text-button is-hidden" type="button">Force close</button>
-              <!-- Remove from history: drops the entry the bar is describing from the catalogue. In the
-                   launcher it deletes a record kept on disk; here the catalogue is a fetched feed, so the
-                   removal lasts until a reload (see controls.ts / PORTED-FROM.md). -->
+              <!-- Remove from library: drops the entry the bar is describing from the catalogue — the
+                   same catalogue the Library screen shows, which is what lets the launcher's own wording
+                   be honest here. In the launcher it deletes a record kept on disk; here the catalogue is
+                   a fetched feed, so the removal lasts until a reload (see controls.ts / PORTED-FROM.md). -->
               <button id="menu-forget" class="text-button is-hidden" type="button">
-                Remove from history
+                Remove from library
               </button>
               <!-- The door to the carousel, in and out. On an entry screen it is the launcher's own
                    "Go back" — the mouse counterpart of the B button; on the landing page, where the
@@ -183,6 +208,31 @@
           </div>
         </div>
       </section>
+
+      <!-- On-screen keyboard. The launcher has no <input> anywhere and its CSS forbids a caret, so this
+           is the only way to type there; here it is the GAMEPAD's way to type — a pad has no keys, and
+           the site answers a pad everywhere else. A physical keyboard writes straight through it.
+
+           It sits OUTSIDE every screen: it opens ON TOP of one, and a keyboard living inside a screen
+           would be extinguished with it (the overlay rules key off data-overlay). Its own z-index puts
+           it level with the screens and under the popup. -->
+      <div class="osk" id="osk" aria-hidden="true">
+        <div class="osk-veil"></div>
+        <div class="osk-panel">
+          <div class="osk-title" id="osk-title"></div>
+          <!-- The value is drawn in TWO halves with the caret between them, so the caret can sit
+               anywhere in the text and a click can be resolved against the half it landed in. The
+               halves live inside one inline wrapper so a long value still wraps as one paragraph. -->
+          <div class="osk-field" id="osk-field">
+            <span class="osk-line"
+              ><span id="osk-value"></span><span class="osk-caret" id="osk-caret"></span
+              ><span id="osk-value-after"></span
+            ></span>
+          </div>
+          <div class="osk-keys" id="osk-keys"></div>
+          <div class="osk-legend" id="osk-legend"></div>
+        </div>
+      </div>
     </main>
     <script type="module" src="./app.js"></script>
   </body>

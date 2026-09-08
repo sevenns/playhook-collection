@@ -16,13 +16,14 @@
 // DEFAULT_SOUND_SET) — the showcase should sound like the product does. It is ONE set for the whole page
 // and an entry cannot override it: per-card UI sounds left the card format in 0.7.0, so the launcher
 // plays the set chosen in its Settings and nothing else. Only the music still travels with an entry.
-// Two of the launcher's nine slots are not here: `typing` (no on-screen keyboard) and `notify` (nothing
-// to notify about) — see PORTED-FROM.md.
+// One of the launcher's nine slots is not here: `notify`, since a showcase has nothing to notify about
+// (see PORTED-FROM.md).
 import { shouldPlayLimit } from './sfx-limit.js';
 
 /**
  * The UI sound slots. `play` exists here too now: the bar has a Play button (see controls.ts). `limit`
- * is the dead end — a press that changed nothing — and `popup-open` / `popup-close` bracket the menu.
+ * is the dead end — a press that changed nothing — `popup-open` / `popup-close` bracket the menu, and
+ * `typing` is a keystroke on the on-screen keyboard (osk.ts).
  */
 export type SfxName =
   | 'navigate'
@@ -31,7 +32,8 @@ export type SfxName =
   | 'play'
   | 'limit'
   | 'popup-open'
-  | 'popup-close';
+  | 'popup-close'
+  | 'typing';
 
 const SFX_FILES: Readonly<Record<SfxName, string>> = {
   navigate: './sfx/move.ogg',
@@ -41,6 +43,7 @@ const SFX_FILES: Readonly<Record<SfxName, string>> = {
   limit: './sfx/limit.ogg',
   'popup-open': './sfx/popup-open.ogg',
   'popup-close': './sfx/popup-close.ogg',
+  typing: './sfx/typing.ogg',
 };
 
 const SFX_NAMES = Object.keys(SFX_FILES) as readonly SfxName[];

@@ -50,7 +50,7 @@ const PREVIEW_MS = 120;
 const EMPTY_TEXT: Readonly<Record<LibrarySection, string>> = {
   all: 'The catalogue is empty. Add a game to see it here.',
   collection: 'No published entries — the collection feed is empty or failed to load.',
-  added: 'Nothing added in this page view.',
+  added: 'Nothing added yet. "Add game" puts an entry here until the page is reloaded.',
 };
 
 const SECTION_LABEL: Readonly<Record<LibrarySection, string>> = {
@@ -566,6 +566,7 @@ export function createLibraryScreen(deps: LibraryScreenDeps): LibraryScreen {
       { id: 'all', label: SECTION_LABEL.all, kind: 'section' },
       { id: 'collection', label: SECTION_LABEL.collection, kind: 'section' },
       { id: 'added', label: SECTION_LABEL.added, kind: 'section' },
+      { id: 'add', label: 'Add game', kind: 'action' },
       { id: 'close', label: 'Close', kind: 'action' },
     ];
   }

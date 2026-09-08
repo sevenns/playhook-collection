@@ -43,7 +43,10 @@ const ENTRY_URL_PREFIX = 'https://github.com/sevenns/playhook-collection/tree/ma
 type PopupView = 'none' | 'details' | 'confirm';
 
 /** Which action the confirm view is asking about (only meaningful while popupView === 'confirm'). */
-type ConfirmMode = 'kill' | 'forget';
+type ConfirmMode = 'kill' | 'forget' | 'discard';
+
+/** The launcher's own wording for leaving a form with unsaved edits (`gameSettings.confirmDiscard`). */
+const DISCARD_QUESTION = 'Discard the changes?';
 
 /** The launcher's own wording, kept verbatim — it is the one place the site can lose something. */
 const KILL_QUESTION = 'Force close the game? Unsaved progress may be lost.';
@@ -54,7 +57,7 @@ const KILL_QUESTION = 'Force close the game? Unsaved progress may be lost.';
  * catalogue is a fetched feed, so the honest promise is the reload.
  */
 const forgetQuestion = (title: string): string =>
-  `Remove "${title}" from the history? It comes back when you reload the page.`;
+  `Remove "${title}" from the library? It comes back when you reload the page.`;
 
 /**
  * One entry in the popup's vertical focus stack. Two roles because they diverged for the search box the
@@ -75,6 +78,8 @@ export interface ControlsDeps {
   readonly carousel: Carousel;
   /** The Library — a full-screen surface, above the strip and the bar but under the popup. */
   readonly library: LibraryNav;
+  /** Customize (in add mode) — the second screen at that same level; never both open at once. */
+  readonly gameSettings: GameSettingsNav;
   /** The pretend game session Play starts and Force close ends. */
   readonly session: SessionController;
   /**
@@ -83,7 +88,7 @@ export interface ControlsDeps {
    * so the two can never drift apart.
    */
   readonly browsedSlug: () => string | null;
-  /** "Remove from history" was confirmed for this slug. The entries are main's, so the removal is too. */
+  /** "Remove from library" was confirmed for this slug. The entries are main's, so the removal is too. */
   readonly onForget: (slug: string) => void;
   /**
    * A direction is being HELD, i.e. the strip is flipping on its own (true), or it has just been let go
@@ -103,6 +108,12 @@ export interface LibraryNav extends NavSurface {
   close(silent?: boolean): void;
 }
 
+/** The same seam for the Customize screen — an OVERLAY like the Library, at the same level. */
+export interface GameSettingsNav extends NavSurface {
+  openNew(): void;
+  close(silent?: boolean): void;
+}
+
 export interface Controls {
   /** New catalogue data (or a load state) for the Github link and the Go back / Collection item. */
   setCollection(state: ListState, entries: readonly CollectionEntry[]): void;
@@ -114,6 +125,10 @@ export interface Controls {
   onSession(): void;
   /** Opens the surface one of the strip's site cards stands for. */
   openSystemCard(id: SystemCardId): void;
+  /** "Add game", from the Library's column — the site's only route to creating an entry. */
+  openAddGame(): void;
+  /** A screen asked its discard question; the answer comes back through `onYes`. */
+  confirmDiscard(onYes: () => void): void;
   /** A full-screen screen closed itself — put the bar highlight back on the More button it came from. */
   screenClosed(): void;
   /** Starts the gamepad polling loop. */
@@ -130,8 +145,12 @@ export function createControls(deps: ControlsDeps): Controls {
    * edit in every primitive.
    */
   const overlays = {
-    active: (): NavSurface | null => (deps.library.isOpen() ? deps.library : null),
-    isAnyOpen: (): boolean => deps.library.isOpen(),
+    active: (): NavSurface | null => {
+      if (deps.library.isOpen()) return deps.library;
+      if (deps.gameSettings.isOpen()) return deps.gameSettings;
+      return null;
+    },
+    isAnyOpen: (): boolean => deps.library.isOpen() || deps.gameSettings.isOpen(),
   };
 
   // The glide step the strip animates one held move over (styles.css reads it as --flip-step). Slightly
@@ -185,6 +204,13 @@ export function createControls(deps: ControlsDeps): Controls {
   let confirmMode: ConfirmMode = 'kill';
   /** The entry an open removal question names — captured when it opens (see triggerStackItem). */
   let forgetSlug: string | null = null;
+  /** What an open SCREEN's question runs on Yes. Only ever set while confirmMode is 'discard'. */
+  let pendingConfirm: (() => void) | null = null;
+  /**
+   * Where B / No returns FROM the confirm view. The menu's own questions step back into it; a question a
+   * SCREEN asked has no menu underneath — that screen is still open — so the popup simply goes.
+   */
+  let confirmReturnTo: 'details' | 'screen' = 'details';
   let stackIndex = 0;
   let focusIndex = 0;
   // Whether the bar's highlight is "awake". The idle timeout puts it to sleep so a page left alone stops
@@ -277,7 +303,7 @@ export function createControls(deps: ControlsDeps): Controls {
   }
 
   /**
-   * Remove from history belongs to ONE entry — the one the bar is describing — so it exists wherever that
+   * Remove from library belongs to ONE entry — the one the bar is describing — so it exists wherever that
    * entry is on screen (its own screen and its card in the strip) and nowhere else. The launcher's second
    * rule, "not for a game that is available right now", has no direct counterpart on a site where nothing
    * is installed; what survives of it is that a RUNNING entry is not history either — removing the game
@@ -435,6 +461,14 @@ export function createControls(deps: ControlsDeps): Controls {
 
   /** The force-close question. One step deeper than Details, and B / No / the veil return there. */
   function openConfirm(mode: ConfirmMode, question: string): void {
+    confirmReturnTo = mode === 'discard' ? 'screen' : 'details';
+    // A question raised by a screen opens the popup from scratch — there is no menu open underneath it.
+    if (popupView === 'none') {
+      audio.play('popup-open');
+      popup.classList.add('is-open');
+      popup.setAttribute('aria-hidden', 'false');
+      popup.removeAttribute('inert');
+    }
     confirmMode = mode;
     confirmMessage.textContent = question;
     setView('confirm');
@@ -473,6 +507,13 @@ export function createControls(deps: ControlsDeps): Controls {
   // from it, exactly as in the launcher).
   function back(): void {
     if (popupView === 'confirm') {
+      // A question a screen asked has nothing underneath it in this column: the popup goes, and the
+      // screen that raised it has the focus again.
+      if (confirmReturnTo === 'screen') {
+        pendingConfirm = null;
+        closePopup();
+        return;
+      }
       audio.play('back');
       setView('details');
       applyMenuItems();
@@ -570,7 +611,9 @@ export function createControls(deps: ControlsDeps): Controls {
       // The path comes from the feed, not from a template built here: a reshuffled collection/ would
       // otherwise rot every link silently.
       const entry = entryOf(route.slug);
-      if (entry !== undefined) {
+      // Only a PUBLISHED entry has a directory here to link at; one added in the browser has none, so
+      // the button falls back to the launcher's repository rather than to a path that would 404.
+      if (entry !== undefined && entry.origin === 'collection') {
         menuGithub.href = `${ENTRY_URL_PREFIX}${entry.sourcePath}`;
         return;
       }
@@ -626,9 +669,16 @@ export function createControls(deps: ControlsDeps): Controls {
     }
     if (item === yesItem) {
       audio.play('button');
+      const mode = confirmMode;
+      const pending = pendingConfirm;
+      pendingConfirm = null;
       closePopup();
-      if (confirmMode === 'kill') {
+      if (mode === 'kill') {
         session.requestKill();
+        return;
+      }
+      if (mode === 'discard') {
+        pending?.();
         return;
       }
       if (forgetSlug !== null) deps.onForget(forgetSlug);
@@ -1054,6 +1104,19 @@ export function createControls(deps: ControlsDeps): Controls {
     onScreen(): void {
       applyMenuItems();
       applyFocus();
+    },
+
+    openAddGame(): void {
+      // The library steps aside first — data-overlay holds one value at a time — and main.ts is what
+      // brings it back when the Customize screen closes (see restoreOrigin there).
+      deps.library.close(true);
+      deps.gameSettings.openNew();
+      applyFocus();
+    },
+
+    confirmDiscard(onYes: () => void): void {
+      pendingConfirm = onYes;
+      openConfirm('discard', DISCARD_QUESTION);
     },
 
     openSystemCard(id: SystemCardId): void {

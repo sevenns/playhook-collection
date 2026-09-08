@@ -16,6 +16,14 @@ written; re-check against the merged HEAD or the `v0.8.0` tag before relying on 
 | `src/gamepad.ts` | `src/renderer/gamepad.ts` | 1:1: hold-to-repeat on all four directions, the stick's settle guard, `onDirectionsReleased`. Y, X, the shoulders and RT stay in the contract; on the site they are dead ends (the `limit` sound), since there is no keyboard or file picker for them to drive |
 | `src/carousel-geometry.ts` | `src/renderer/carousel-geometry.ts` | 1:1 — the 8/24 gaps, `stripCanvas`, the window of nine (`VISIBLE_CARDS`), `MAX_STRIP_GAMES` (exported, not applied — see below) |
 | `src/focus-jelly.ts` | `src/renderer/focus-jelly.ts` | 1:1 |
+| `src/index-math.ts`, `src/entrance.ts`, `src/nav-surface.ts`, `src/hover-guard.ts` | same names | 1:1 |
+| `src/screen-scroller.ts` | `src/renderer/screen-scroller.ts` | 1:1 minus its `pxUnit` (see `src/px-unit.ts` below) |
+| `src/screen-sidebar.ts` | `src/renderer/screen-sidebar.ts` | 1:1 — the column of sections + actions both screens are built around |
+| `src/system-cards.ts`, `src/system-card-icons.ts` | same names | the launcher carries four cards (Library / Notifications / Settings / System); the site carries the one it has something behind — see below |
+| `src/library-grid.ts` | `src/renderer/library-grid.ts` | geometry and stepping 1:1; the SECTIONS are the site's own (see below) |
+| `src/library-screen.ts` | `src/renderer/library-screen.ts` | ported; its artwork machinery is not (there a cover is a data URL main generates on first sight, so the screen needs a bounded cache with a request queue and an eviction callback — here a cover is a URL and the browser's cache is that cache). The row window, the FLIP re-flow, the section arrival, the focus body, the sidebar and the six primitives all come across |
+| `src/osk.ts`, `src/osk-text.ts` | `src/renderer/osk.ts`, `src/renderer/osk-text.ts` | 1:1, with the launcher's English labels inlined where it reads its i18n layer, and the clipboard read through the browser rather than main |
+| `src/game-settings-screen.ts` | `src/renderer/game-settings-screen.ts` | the SHAPE only — see below |
 | `src/sfx-limit.ts` | `src/renderer/sfx-limit.ts` | 1:1 (its docblock still says `HOLD_DELAY_MS` is 350 — it is 175; the comment is stale upstream and is copied as-is) |
 | `src/px-unit.ts` | `src/renderer/screen-scroller.ts` (`pxUnit`) | rewritten: the launcher multiplies the vh number out of `--px`; this site's `--px` is a `min()` with a media override, which an unregistered custom property never resolves, so the unit is measured off a probe element instead |
 | `src/carousel.ts` | `src/renderer/carousel.ts` | ported; the artwork cache and `artRev` are gone (a cover is a plain URL here and the browser's cache is the cache), the launcher's own system cards are not there yet (phase C), the dot's `.shows-dot`/`.is-busy` states are only entered for a running session, and a third screen value — `home`, the bare landing page — joins `carousel`/`detail`. The focus body, `MoveResult`, `setFlipping`, the `.is-beyond` window and the `data-returning` fan are all in |
@@ -32,7 +40,7 @@ written; re-check against the merged HEAD or the `v0.8.0` tag before relying on 
 | `src/collection.ts` | — | new; the launcher has no feed to read (0.8.0 takes its metadata straight from the stores — see README) |
 | `public/wallpaper.*` | `assets/playhook-wallpaper.jpg` | recompressed (webp q90 + a jpg fallback) |
 | `public/favicon.png` | `assets/icon.png` | 1:1 |
-| `public/sfx/*.ogg` | `audio/ui/playhook-abyss/*.wav` | the launcher's 0.8.0 default set, re-encoded to Vorbis: `ffmpeg -i <slot>.wav -c:a libvorbis -q:a 2 -ar 48000 <slot>.ogg` for the seven slots the site plays (`play`, `move`, `button`, `back`, `limit`, `popup-open`, `popup-close`). `typing` and `notify` are not shipped — nothing here types or notifies |
+| `public/sfx/*.ogg` | `audio/ui/playhook-abyss/*.wav` | the launcher's 0.8.0 default set, re-encoded to Vorbis: `ffmpeg -i <slot>.wav -c:a libvorbis -q:a 2 -ar 48000 <slot>.ogg` for the eight slots the site plays (`play`, `move`, `button`, `back`, `limit`, `popup-open`, `popup-close`, `typing`). `notify` is not shipped — nothing here notifies |
 | `public/fonts/*.woff2` | `src/renderer/fonts/*.ttf` | **not** the same files — Google Fonts' latin woff2 subsets (96 KB total vs 13.7 MB of CJK TTF); the four `.`/`…` overrides that hand those two glyphs to the fallback font are copied |
 | `eslint.config.mjs`, `.prettierrc.json`, `tsconfig.json` | same names | copied; `types: ["node"]` and the `release/**` ignore dropped, the `test/**` block skipped (there are no tests here) |
 
@@ -66,12 +74,34 @@ and why a public web page cannot.
   the jingle would fall to the autoplay policy until the first gesture anyway. Declined, not deferred —
   which is also why the site's music engine keeps its own gate rather than the launcher's `applyPlayback`
   (that one exists to hold the music behind the jingle).
-- **No notifications, no Settings / Power cards, no Library grid (yet).** Nothing on a showcase can
-  notify, there are no settings to open and no machine to power down. The Library screen — the grid of
-  every game, which is what the word means in 0.8.0 — is a separate phase; until it exists the strip's
-  cap of nine games (`MAX_STRIP_GAMES`) is deliberately NOT applied, because the games past it would have
-  nowhere else to be reached from. The window of nine visible cards (`VISIBLE_CARDS`) IS applied: it only
-  fades the far cards, it hides nothing.
+- **The Library is the only one of the launcher's four cards.** Nothing on a showcase can notify, there
+  are no settings to open and no machine to power down, so Notifications, Settings and System stay behind
+  and the row carries the Library card alone. With that grid in place the strip's cap of nine
+  (`MAX_STRIP_GAMES`) is applied as the launcher applies it: everything past the ninth entry is reached
+  through the Library, which holds every one of them.
+- **The Library's sections are the site's own.** The launcher splits its games four ways — everything,
+  playable right now, on this PC, on a card. Two of those questions have no answer here: nothing is
+  installed, so nothing is unavailable, and a section that can never differ from "All" says less than no
+  section at all. What survives is the launcher's OTHER question, where a game comes from: **Collection**
+  (published in this repository) and **Added here** (made in the browser, see below).
+- **"Add game" builds an entry that lives until the page is reloaded.** In the launcher the item opens
+  Customize, whose rows are the fields of a `game.json` on a card and whose Save writes that file. A web
+  page has no card and no file, so what is ported is the SCREEN — the same skeleton, the same rows
+  opening the same on-screen keyboard, the same bottom-anchored Save / Close, the same discard question —
+  while the rows collect what a catalogue ENTRY is made of: a name, an address, a cover, backgrounds, a
+  soundtrack. The files are picked from the disk and become blob URLs, which is why the page's CSP admits
+  `blob:` on `img-src` and `media-src` (it admits nothing from the network: a blob URL can only name
+  something this document itself made). The entry is sorted into the catalogue by title like any other
+  and is gone on the next reload, exactly as a removal is.
+- **The file dialog is the browser's, and a gamepad cannot open it.** The launcher ships its own file
+  browser because a native dialog cannot be driven with a pad over a fullscreen window. Here the native
+  one is all there is, and the web attaches its own rule to it: a dialog opens only from a real user
+  gesture, and a pad press is not one — the pad is polled on a frame loop and fires no DOM event at all.
+  So the artwork rows answer the mouse and the keyboard, and tell a pad user so rather than doing nothing
+  (`navigator.userActivation` in `game-settings-screen.ts`).
+- **The on-screen keyboard is ported even though the web has a real one.** In the launcher it is the only
+  way to type; here it is the GAMEPAD's way to type, and the site answers a gamepad everywhere else. A
+  physical keyboard writes straight through it, exactly as it does there.
 - **The play statistics are made up.** Last played / Playtime / Launches come from StatsService in the
   launcher, which counts real sessions on the user's machine; a showcase has none to count. The three
   figures are derived from the entry's slug (`src/stats.ts`), so a card always shows the same numbers
@@ -113,9 +143,10 @@ and why a public web page cannot.
   entry cannot be removed: dropping the game you are playing would leave a session pointing at a card that
   no longer exists. The item follows the BROWSED entry, so it works on an entry screen and on the strip
   alike — the launcher's does the same, its browse model being what the bar describes there too.
-- **…and it keeps that name, not the launcher's "Remove from library".** Without a Library screen the
-  0.8.0 wording would be wrong twice over: there is no library, and the removal lives in memory until the
-  page is reloaded. Renaming it belongs with the grid.
+- **…and it is called what the launcher calls it.** "Remove from library" was held back while the site
+  had no library to remove from; with the grid in place it names exactly the catalogue that grid shows.
+  The QUESTION is still the site's own — the launcher promises the saves and the playtime survive and the
+  card brings the game back, which is true of a record on disk; here the honest promise is the reload.
 - **Customize is not in the menu.** It is the launcher's per-game form over a file on a card; a feed
   entry has no file to edit.
 - **The bar keeps a vertical gradient below 900px/600px.** The launcher's radial "pool" is measured

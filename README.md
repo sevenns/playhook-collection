@@ -10,7 +10,9 @@ Two things live here:
    It is [Playhook](https://github.com/sevenns/playhook)'s own UI, rebuilt as a static page: same hero,
    same bar, same menu, same sounds, same gamepad. Its Collection view browses the catalogue as a
    carousel of covers, and picking an entry previews it the way the launcher would — that entry's hero
-   images rotating, its own background music.
+   images rotating, its own background music. The Library card at the end of the row opens the whole
+   catalogue as a grid, and its "Add game" builds an entry from files on your own disk — that one lives
+   in the tab, and a reload takes it away.
 2. **The collection** — ready-made `game.json` manifests per game (hero images, the carousel cover, save
    paths, titles), so you don't have to write one from scratch. See
    [collection/README.md](collection/README.md).

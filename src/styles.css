@@ -1194,7 +1194,7 @@ html.kbd-focus .play-button:focus-visible {
   display: flex;
 }
 
-/* Menu items that come and go with the screen and the session (Force close, Remove from history, and
+/* Menu items that come and go with the screen and the session (Force close, Remove from library, and
    the carousel door, which only exists with a carousel behind it). `display: none` so they leave the
    layout AND the focus stack's DOM order. */
 .text-button.is-hidden {
@@ -1275,7 +1275,8 @@ html:not(.mouse-asleep) .text-button:hover,
     content-visibility 0.35s allow-discrete;
 }
 
-#app[data-overlay='library'] #library {
+#app[data-overlay='library'] #library,
+#app[data-overlay='game-settings'] #game-settings {
   opacity: 1;
   pointer-events: auto;
   visibility: visible;
@@ -1325,7 +1326,8 @@ html:not(.mouse-asleep) .text-button:hover,
   pointer-events: none;
 }
 
-#app[data-overlay='library'] #library .settings-veil {
+#app[data-overlay='library'] #library .settings-veil,
+#app[data-overlay='game-settings'] #game-settings .settings-veil {
   opacity: 1;
 }
 
@@ -1345,7 +1347,8 @@ html:not(.mouse-asleep) .text-button:hover,
     opacity 0.35s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-#app[data-overlay='library'] #library .settings-column {
+#app[data-overlay='library'] #library .settings-column,
+#app[data-overlay='game-settings'] #game-settings .settings-column {
   opacity: 1;
   transform: none;
 }
@@ -1674,6 +1677,317 @@ html:not(.mouse-asleep) .settings-nav-item:hover,
   width: calc(12 * var(--px));
   height: calc(12 * var(--px));
   box-shadow: 0 0 0 calc(2 * var(--px)) color-mix(in srgb, var(--d1) 85%, transparent);
+}
+
+
+/* ── The form pane (Customize) ──────────────────────────────────────────────
+   The other half of the shared skeleton: where the Library puts a grid of covers, this puts the rows of
+   the selected section. Ported from playhook @ c26fae7 — the launcher builds Settings and Customize on
+   exactly these classes. */
+
+.settings-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  /* The pane sits narrow while the COLUMN has the focus and opens out to the left when the focus steps
+     into it — its right edge never moves, so the rows stay aligned and only the entrance widens. That
+     sideways move is what says "you are in here now". */
+  margin-left: calc(20 * var(--px));
+  transition: margin-left 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  /* Each edge fades rather than cuts, so a row crossing the clip is half-transparent instead of sliced.
+     The sizes are driven from JS (screen-scroller.ts): an edge with nothing beyond it has NO fade. */
+  --fade-top: 0px;
+  --fade-bottom: 0px;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 var(--fade-top),
+    #000 calc(100% - var(--fade-bottom)),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 var(--fade-top),
+    #000 calc(100% - var(--fade-bottom)),
+    transparent 100%
+  );
+}
+
+.settings-list.is-active {
+  margin-left: 0;
+}
+
+.settings-list::-webkit-scrollbar {
+  display: none;
+}
+
+/* The pane's rows arrive the same way the column's entries do — the two halves of the screen behave
+   alike. Armed by the screen when the pane changes SECTION, and only then: not on a value the user just
+   typed. The class sits on the ROW, not on the list around it (see entrance.ts). */
+.setting-row.is-entering {
+  animation: popup-item-in 0.28s cubic-bezier(0.2, 0, 0.2, 1) both;
+  animation-delay: calc(var(--row-index, 0) * 30ms);
+}
+
+/* One row: label left, value right. Focus inverts the WHOLE row, so every control drawn in currentColor
+   inverts with it — no second set of rules per control. */
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(24 * var(--px));
+  min-height: calc(78 * var(--px));
+  padding: calc(8 * var(--px)) calc(32 * var(--px));
+  border-radius: calc(10 * var(--px));
+  color: var(--d2);
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+
+/* :hover gated on a live cursor, like every other control here (see .text-button). */
+html:not(.mouse-asleep) .setting-row:hover,
+.setting-row.is-focused {
+  background: var(--d2);
+  color: var(--d1);
+}
+
+.setting-row.is-pressed {
+  transform: scale(0.98);
+}
+
+/* Capped at 60% of the row, the same share the value takes on the other side: a hint is free to run onto
+   a second line, but never to push the value out of the column the rest of the rows keep it in. */
+.setting-label-box {
+  display: flex;
+  flex-direction: column;
+  gap: calc(2 * var(--px));
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 60%;
+}
+
+.setting-label {
+  font-weight: 500;
+  font-size: calc(28 * var(--px));
+  line-height: calc(40 * var(--px));
+}
+
+.setting-hint {
+  font-weight: 300;
+  font-size: calc(20 * var(--px));
+  line-height: calc(28 * var(--px));
+  opacity: 0.7;
+}
+
+.setting-value {
+  font-weight: 500;
+  font-size: calc(26 * var(--px));
+  min-width: calc(220 * var(--px));
+  text-align: center;
+}
+
+/* A value that is TEXT rather than a number or a switch — a name, a file's name — wraps instead of
+   pushing the row wider. */
+.setting-value-wide {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 60%;
+  text-align: right;
+  overflow-wrap: anywhere;
+  font-weight: 400;
+  font-size: calc(24 * var(--px));
+  line-height: calc(32 * var(--px));
+}
+
+/* Save's own feedback, under both columns — see the note in index.html. */
+.settings-status {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: calc(6 * var(--px));
+  padding: calc(12 * var(--px)) calc(32 * var(--px)) 0;
+  font-weight: 300;
+  font-size: calc(22 * var(--px));
+  line-height: calc(32 * var(--px));
+  color: color-mix(in srgb, var(--fg) 70%, transparent);
+}
+
+.settings-status:empty {
+  display: none;
+}
+
+/* ── On-screen keyboard ─────────────────────────────────────────────────────
+   Ported from playhook @ c26fae7. A surface of its own, not part of a screen: it opens on TOP of one.
+   Hence z-index 2 — level with `.settings`, and above it by DOM order — while the popup's 3 still paints
+   over everything. It is the GAMEPAD's way to type here (see the note on #osk in index.html). */
+.osk {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+  z-index: 2;
+}
+
+.osk.is-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Fully opaque, not a tint: the form behind the keyboard is unreadable at 12% anyway, and showing it
+   through only competes with the keys for attention. */
+.osk-veil {
+  position: absolute;
+  inset: 0;
+  background: var(--d1);
+}
+
+/* The panel comes UP from the edge it is anchored to and leaves the same way — the movement a keyboard
+   makes. A transition off the open state, not an animation: the panel itself is never rebuilt (only the
+   keys inside it are), so there is nothing here for a rebuild to replay. The X half of the transform is
+   the centring and must be repeated in both states, or the panel would slide in from the left as well. */
+.osk-panel {
+  position: absolute;
+  left: 50%;
+  bottom: calc(60 * var(--px));
+  transform: translateX(-50%) translateY(calc(28 * var(--px)));
+  width: calc(1100 * var(--px));
+  max-width: calc(100% - 80 * var(--px));
+  display: flex;
+  flex-direction: column;
+  gap: calc(16 * var(--px));
+  transition: transform 0.28s cubic-bezier(0.2, 0, 0.2, 1);
+}
+
+.osk.is-open .osk-panel {
+  transform: translateX(-50%);
+}
+
+/* …and the rows arrive behind it, in the order they are read. Armed by the keyboard (osk.ts) on open —
+   see the note there for why this cannot key off .is-open like the popup's items do, and entrance.ts for
+   why the class lands on the row rather than on the keyboard around it. */
+.osk-row.is-entering {
+  animation: popup-item-in 0.26s cubic-bezier(0.2, 0, 0.2, 1) both;
+  animation-delay: calc(0.08s + var(--osk-row, 0) * 35ms);
+}
+
+.osk-title {
+  font-weight: 500;
+  font-size: calc(26 * var(--px));
+  color: color-mix(in srgb, var(--d2) 70%, transparent);
+}
+
+/* The value being edited. Not an <input>: the UI forbids a caret globally (and a real one would let the
+   OS focus wander), so the caret is drawn — one element, blinking, wherever the caret currently is.
+   Clickable: pressing anywhere in the text puts the caret there, which is why the pointer is a text one
+   here and nowhere else in this launcher. */
+.osk-field {
+  display: flex;
+  align-items: center;
+  min-height: calc(72 * var(--px));
+  padding: calc(8 * var(--px)) calc(24 * var(--px));
+  border-radius: calc(10 * var(--px));
+  background: color-mix(in srgb, var(--d2) 14%, transparent);
+  color: var(--d2);
+  font-weight: 500;
+  font-size: calc(30 * var(--px));
+  overflow-wrap: anywhere;
+  /* Spaces are rendered EXACTLY as they are stored. HTML normally collapses a run of them into one and
+     drops them at the end of a line entirely, so pressing space five times drew one space and stored
+     five — and the only way to notice was that it then took five presses of Backspace to clear. The
+     `break-spaces` flavour (rather than pre-wrap) also keeps trailing spaces from hanging past the edge,
+     which is what puts the caret in the right place after them. */
+  white-space: break-spaces;
+  cursor: text;
+}
+
+/* The two halves and the caret between them, as ONE inline box: a flex row would lay the halves out as
+   two independent items and break a long value across them at the caret rather than where it fits. */
+.osk-line {
+  cursor: text;
+}
+
+.osk-caret {
+  display: inline-block;
+  width: calc(3 * var(--px));
+  height: calc(34 * var(--px));
+  /* Zero-width in the flow: the caret sits BETWEEN two characters, so it must not push the text it
+     divides apart — a margin here would make the value jump every time the caret moved through it. */
+  margin: 0 calc(-1.5 * var(--px));
+  vertical-align: text-bottom;
+  background: currentColor;
+  animation: osk-caret 1s steps(1) infinite;
+}
+
+@keyframes osk-caret {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  50.01%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.osk-keys {
+  display: flex;
+  flex-direction: column;
+  gap: calc(8 * var(--px));
+}
+
+.osk-row {
+  display: flex;
+  gap: calc(8 * var(--px));
+  justify-content: center;
+}
+
+.osk-key {
+  flex: 0 0 auto;
+  min-width: calc(76 * var(--px));
+  height: calc(76 * var(--px));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 calc(16 * var(--px));
+  border: none;
+  border-radius: calc(10 * var(--px));
+  background: color-mix(in srgb, var(--d2) 14%, transparent);
+  color: var(--d2);
+  font-family: inherit;
+  font-weight: 500;
+  font-size: calc(30 * var(--px));
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+
+.osk-key.is-wide {
+  min-width: calc(168 * var(--px));
+  font-size: calc(24 * var(--px));
+}
+
+html:not(.mouse-asleep) .osk-key:hover,
+.osk-key.is-focused {
+  background: var(--d2);
+  color: var(--d1);
+}
+
+.osk-key.is-pressed {
+  transform: scale(0.92);
+}
+
+.osk-key.is-active {
+  outline: calc(2 * var(--px)) solid var(--d2);
+  outline-offset: calc(-2 * var(--px));
+}
+
+.osk-legend {
+  font-weight: 300;
+  font-size: calc(20 * var(--px));
+  color: color-mix(in srgb, var(--d2) 55%, transparent);
+  text-align: center;
 }
 
 /* ── BROWSER: narrow / short viewports ─────────────────────────────────────

@@ -6,8 +6,10 @@ import { AUTO_CHAIN_MS, NAV_REPEAT_MS } from './auto-repeat.js';
 import { createAudioController } from './audio.js';
 import { createCarousel } from './carousel.js';
 import { createControls } from './controls.js';
+import { createGameSettingsScreen, type GameDraft } from './game-settings-screen.js';
 import { createHeroController } from './hero.js';
 import { createLibraryScreen } from './library-screen.js';
+import { createOsk } from './osk.js';
 import { createRouter, type Route } from './router.js';
 import { loadIndex, type CollectionEntry, type ListState } from './collection.js';
 import { busyKindOf, createSessionController, statusOf } from './session.js';
@@ -130,6 +132,47 @@ function applyNothing(): void {
 type ReturnTo = 'carousel' | 'library';
 let returnTo: ReturnTo = 'carousel';
 
+/** Today, as the feed spells a date — what an entry made in the browser is stamped with. */
+const today = (): string => new Date().toISOString().slice(0, 10);
+
+/**
+ * Puts one entry into the catalogue for THIS page view: the mirror of forgetEntry, and the whole of what
+ * "Add game" writes. Sorted in by title like the rest, because that is the order the feed publishes and
+ * the order both the strip and the grid read.
+ */
+function addEntry(draft: GameDraft): void {
+  const entry: CollectionEntry = {
+    slug: draft.slug,
+    title: draft.title,
+    origin: 'added',
+    updatedAt: today(),
+    // Neither has anything to point at: this entry exists only in this tab. The Github item knows it
+    // (see applyGithubHref in controls.ts) and links at the launcher's repository instead.
+    sourcePath: '',
+    manifestUrl: '',
+    heroUrls: draft.heroUrls,
+    ...(draft.gridUrl !== null ? { gridUrl: draft.gridUrl } : {}),
+    music: draft.music,
+  };
+  entries = [...entries, entry].sort((a, b) =>
+    a.title.toLowerCase().localeCompare(b.title.toLowerCase(), 'en'),
+  );
+  carousel.setEntries(entries);
+  libraryScreen.setEntries(entries);
+  controls.setCollection('ready', entries);
+  showAddedEntry(entry.slug);
+}
+
+/**
+ * An entry was just added: put the user in front of it — in the LIBRARY, standing on it. The strip is a
+ * shortlist (MAX_STRIP_GAMES) ordered by title, so a new entry may have no card there at all; the grid
+ * holds every entry by construction, so it can always show the one that was just made.
+ */
+function showAddedEntry(slug: string): void {
+  returnTo = 'carousel';
+  libraryScreen.open({ focusSlug: slug });
+}
+
 /** Brings the Library back up if that is where the entry screen was entered from. Consumes the flag. */
 function restoreOrigin(): void {
   if (returnTo !== 'library') return;
@@ -155,11 +198,36 @@ function openEntry(slug: string, origin: ReturnTo = 'carousel'): void {
 // ── The Library screen (a full-screen surface, see library-screen.ts) ───────
 // It owns its grid, its sections and its focus; everything it reaches back for is here. Read lazily
 // where it points at `controls`, which is created below — the two point at each other.
+// The on-screen keyboard: the gamepad's only way to type (osk.ts). It is built before the screen that
+// uses it, and lives outside every screen — see the note on #osk in index.html.
+const osk = createOsk({
+  audio,
+  // BROWSER: the launcher reads the clipboard through main; here the browser may simply refuse (no
+  // permission, an insecure origin), and a Paste that answers with nothing is better than a rejection
+  // nobody catches.
+  readClipboard: () => navigator.clipboard.readText().catch(() => ''),
+});
+
+// ── Customize, in add mode (see game-settings-screen.ts) ────────────────────
+const gameSettingsScreen = createGameSettingsScreen({
+  audio,
+  keyboard: osk,
+  slugTaken: (slug) => entries.some((entry) => entry.slug === slug),
+  onAdd: (draft) => addEntry(draft),
+  onClosed: () => {
+    controls.screenClosed();
+    // Cancelled out of "Add game" — back to the Library it was started from. On a successful add this
+    // still runs first (the screen closes before it reports the new entry), and showAddedEntry undoes it.
+    libraryScreen.restore();
+  },
+  confirmDiscard: (onYes) => controls.confirmDiscard(onYes),
+});
+
 const libraryScreen = createLibraryScreen({
   audio,
   getEntries: () => entries,
   onOpenEntry: (slug) => openEntry(slug, 'library'),
-  onAddGame: () => undefined,
+  onAddGame: () => controls.openAddGame(),
   onClosed: () => {
     controls.screenClosed();
     // Opening the screen told the page that nothing is on screen (its card is a site card). Closing it
@@ -212,6 +280,7 @@ const controls = createControls({
   router,
   carousel,
   library: libraryScreen,
+  gameSettings: gameSettingsScreen,
   session,
   browsedSlug: () => browsedSlug(),
   onForget: (slug) => forgetEntry(slug),
@@ -246,7 +315,7 @@ function applySession(): void {
 session.subscribe(applySession);
 
 /**
- * "Remove from history" (the More menu): drops one entry from the catalogue for THIS page view. The
+ * "Remove from library" (the More menu): drops one entry from the catalogue for THIS page view. The
  * launcher deletes a record it keeps on disk and the game stays gone; the equivalent of that record here
  * is the fetched feed held in memory, so the removal lasts until a reload re-fetches it — which is what
  * the question promises, and why it is the one place the site cannot use the launcher's wording.
