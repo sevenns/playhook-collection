@@ -145,7 +145,7 @@ export function createControls(deps: ControlsDeps): Controls {
   // three places — the paint (applyFocus), the wake (moveFocus / noteMouseActivity) and the activation
   // gate (navActivate). Miss the first and the ring never appears at all.
   let focusRevealed = true;
-  let cursorHidden = false;
+  let mouseAsleep = false;
   let idleTimer = 0;
   let collectionEntries: readonly CollectionEntry[] = [];
 
@@ -568,17 +568,17 @@ export function createControls(deps: ControlsDeps): Controls {
 
   // ── Cursor & the idle timeout ────────────────────────────────────────────────
 
-  function setCursorHidden(hidden: boolean): void {
-    if (cursorHidden === hidden) return;
-    cursorHidden = hidden;
-    document.documentElement.classList.toggle('cursor-hidden', hidden);
+  function setMouseAsleep(asleep: boolean): void {
+    if (mouseAsleep === asleep) return;
+    mouseAsleep = asleep;
+    document.documentElement.classList.toggle('mouse-asleep', asleep);
   }
 
   function armIdleTimer(): void {
     if (idleTimer !== 0) window.clearTimeout(idleTimer);
     idleTimer = window.setTimeout(() => {
       idleTimer = 0;
-      setCursorHidden(true);
+      setMouseAsleep(true);
       if (focusRevealed && focusActive()) {
         focusRevealed = false;
         // No sleep class of its own: the highlight simply stops being painted, and the Play ring goes
@@ -592,7 +592,7 @@ export function createControls(deps: ControlsDeps): Controls {
    *  This is our OWN navigation (WASD/arrows/gamepad), which paints the .is-focused fill — so it also
    *  disarms the native ring, which is reserved for a plain Tab. */
   function noteNavActivity(): void {
-    setCursorHidden(true);
+    setMouseAsleep(true);
     setKeyboardMode(false);
     armIdleTimer();
   }
@@ -600,7 +600,7 @@ export function createControls(deps: ControlsDeps): Controls {
   /** Real mouse movement: show the pointer, and bring the dormant highlight back with it (silently —
    *  moving a mouse is not a navigation press and should not sound like one). */
   function noteMouseActivity(): void {
-    setCursorHidden(false);
+    setMouseAsleep(false);
     armIdleTimer();
     if (!focusRevealed) {
       focusRevealed = true;
