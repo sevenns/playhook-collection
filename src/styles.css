@@ -1191,8 +1191,9 @@ html.kbd-focus .play-button:focus-visible {
   display: flex;
 }
 
-/* Menu items that come and go with the screen (Library, which only exists on an entry screen with a
-   carousel behind it). `display: none` so they leave the layout AND the focus stack's DOM order. */
+/* Menu items that come and go with the screen and the session (Force close, Remove from history, and
+   the carousel door, which only exists with a carousel behind it). `display: none` so they leave the
+   layout AND the focus stack's DOM order. */
 .text-button.is-hidden {
   display: none;
 }

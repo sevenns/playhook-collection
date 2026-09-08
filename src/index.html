@@ -117,18 +117,12 @@
                Each is a vertical stack aligned to the right edge: a longer label grows to the LEFT,
                the right edge stays fixed. -->
           <div class="popup-actions">
+            <!-- ORDER MATTERS, and it is the launcher's: the items that APPEAR AND DISAPPEAR with the
+                 session (Force close, Remove from history) are at the TOP, and the ones that are always
+                 there sit in a fixed block just above Close. The stack is bottom-focused and
+                 bottom-anchored, so anything volatile near the bottom would shift the stable items
+                 under the user's thumb between visits. -->
             <div class="actions-group" data-group="details">
-              <!-- Github: a real link, in the SAME tab. Gamepad polling is not a user activation, so a
-                   scripted click on target="_blank" would be blocked as a popup — one code path for
-                   mouse, keyboard and pad is worth more than a new tab. href is set per route from
-                   controls.ts (the repository on home, the entry's directory on a game screen). -->
-              <a id="menu-github" class="text-button" href="https://github.com/sevenns/playhook"
-                >Github</a
-              >
-              <!-- Library: the one way into the carousel and the one way back to it. On the landing page
-                   it opens the strip, on an entry screen it returns to it — the mouse counterpart of the
-                   B button. Hidden only where there is no carousel to show (see controls.ts). -->
-              <button id="menu-library" class="text-button" type="button">Library</button>
               <!-- Force close: the only way out of a session. Shown while one is RUNNING and not
                    already closing down — exactly the launcher's rule (see controls.ts). -->
               <button id="menu-kill" class="text-button is-hidden" type="button">Force close</button>
@@ -138,6 +132,18 @@
               <button id="menu-forget" class="text-button is-hidden" type="button">
                 Remove from history
               </button>
+              <!-- The door to the carousel, in and out. On an entry screen it is the launcher's own
+                   "Go back" — the mouse counterpart of the B button; on the landing page, where the
+                   launcher has no such item, it reads "Collection" and opens the strip. The text is
+                   written per route from controls.ts. Hidden only where there is no carousel to show. -->
+              <button id="menu-home" class="text-button" type="button">Collection</button>
+              <!-- Github: a real link, in the SAME tab. Gamepad polling is not a user activation, so a
+                   scripted click on target="_blank" would be blocked as a popup — one code path for
+                   mouse, keyboard and pad is worth more than a new tab. href is set per route from
+                   controls.ts (the repository on home, the entry's directory on a game screen). -->
+              <a id="menu-github" class="text-button" href="https://github.com/sevenns/playhook"
+                >Github</a
+              >
               <button id="menu-close" class="text-button" type="button">Close</button>
             </div>
 

@@ -90,7 +90,7 @@ export interface ControlsDeps {
 }
 
 export interface Controls {
-  /** New catalogue data (or a load state) for the Github link and the Library item. */
+  /** New catalogue data (or a load state) for the Github link and the Go back / Collection item. */
   setCollection(state: ListState, entries: readonly CollectionEntry[]): void;
   /** The route changed: relabel Github, re-evaluate the bar group and the menu. */
   onRoute(): void;
@@ -124,7 +124,7 @@ export function createControls(deps: ControlsDeps): Controls {
   const infoPanel = req('info-panel');
   const confirmMessage = req('confirm-message');
   const menuGithub = req<HTMLAnchorElement>('menu-github');
-  const menuLibrary = req<HTMLButtonElement>('menu-library');
+  const menuHome = req<HTMLButtonElement>('menu-home');
   const menuKill = req<HTMLButtonElement>('menu-kill');
   const menuForget = req<HTMLButtonElement>('menu-forget');
   const menuClose = req<HTMLButtonElement>('menu-close');
@@ -134,7 +134,7 @@ export function createControls(deps: ControlsDeps): Controls {
   const ALL_BAR_BUTTONS: readonly HTMLButtonElement[] = [playButton, moreButton];
 
   const githubItem: StackItem = { kind: 'button', visual: menuGithub, focusTarget: menuGithub };
-  const libraryItem: StackItem = { kind: 'button', visual: menuLibrary, focusTarget: menuLibrary };
+  const homeItem: StackItem = { kind: 'button', visual: menuHome, focusTarget: menuHome };
   const killItem: StackItem = { kind: 'button', visual: menuKill, focusTarget: menuKill };
   const forgetItem: StackItem = { kind: 'button', visual: menuForget, focusTarget: menuForget };
   const closeItem: StackItem = { kind: 'button', visual: menuClose, focusTarget: menuClose };
@@ -142,10 +142,10 @@ export function createControls(deps: ControlsDeps): Controls {
   const noItem: StackItem = { kind: 'button', visual: confirmNo, focusTarget: confirmNo };
 
   const ALL_STATIC_ITEMS: readonly StackItem[] = [
-    githubItem,
-    libraryItem,
     killItem,
     forgetItem,
+    homeItem,
+    githubItem,
     closeItem,
     yesItem,
     noItem,
@@ -203,13 +203,22 @@ export function createControls(deps: ControlsDeps): Controls {
   // ── The popup's focus stack ──────────────────────────────────────────────────
 
   /**
-   * Library is the only door to the carousel — in, from the landing page, and back, from an entry. It
-   * hides only where there is nothing behind it: a catalogue too short to flip through. (The menu never
-   * opens over the strip itself, so "already there" is not a case.)
+   * One item is the door to the carousel — in, from the landing page, and back, from an entry. It hides
+   * only where there is nothing behind it: a catalogue too short to flip through. (The menu never opens
+   * over the strip itself, so "already there" is not a case.)
    */
-  function libraryVisible(): boolean {
+  function homeVisible(): boolean {
     return carousel.exists();
   }
+
+  /**
+   * What that door is called. On an entry screen it is the launcher's own "Go back" (launcher.menu.goBack)
+   * — the strip is where the entry was opened from. On the landing page the launcher has no such item
+   * (its strip IS the top level), so the site names the destination instead: "Collection", the hash the
+   * item writes. "Library" is kept back for the grid screen that word means in 0.8.0.
+   */
+  const HOME_LABEL_BACK = 'Go back';
+  const HOME_LABEL_COLLECTION = 'Collection';
 
   /**
    * Force close is offered while a session is RUNNING and a close is not already in flight — during
@@ -252,20 +261,25 @@ export function createControls(deps: ControlsDeps): Controls {
     return active === null || active.slug !== slug;
   }
 
-  function applyMenuLibrary(): void {
-    menuLibrary.classList.toggle('is-hidden', !libraryVisible());
+  function applyMenuItems(): void {
     menuKill.classList.toggle('is-hidden', !killVisible());
     menuForget.classList.toggle('is-hidden', !forgetVisible());
+    menuHome.classList.toggle('is-hidden', !homeVisible());
+    menuHome.textContent =
+      router.current().kind === 'game' ? HOME_LABEL_BACK : HOME_LABEL_COLLECTION;
   }
 
   function stackItems(): readonly StackItem[] {
     if (popupView === 'confirm') return [yesItem, noItem];
     if (popupView !== 'details') return [];
-    const items = [githubItem];
-    if (libraryVisible()) items.push(libraryItem);
+    // MUST match the DOM order in index.html — this list IS the up/down order, and a mismatch would move
+    // the highlight somewhere other than where the eye follows. Volatile items first, then the fixed
+    // block that ends at Close: see the note there.
+    const items: StackItem[] = [];
     if (killVisible()) items.push(killItem);
     if (forgetVisible()) items.push(forgetItem);
-    items.push(closeItem);
+    if (homeVisible()) items.push(homeItem);
+    items.push(githubItem, closeItem);
     return items;
   }
 
@@ -314,10 +328,10 @@ export function createControls(deps: ControlsDeps): Controls {
   }
 
   /**
-   * The Library item comes and goes with the route, i.e. it changes how many items sit above the
-   * others — their INDEX. Restoring a remembered index instead of the remembered ELEMENT would slide the
-   * highlight onto a different button. So: remember the item, find it again, and fall back to the
-   * nearest valid position only if it left the stack.
+   * The volatile items come and go with the route and the session, i.e. they change how many items sit
+   * above the others — their INDEX. Restoring a remembered index instead of the remembered ELEMENT would
+   * slide the highlight onto a different button. So: remember the item, find it again, and fall back to
+   * the nearest valid position only if it left the stack.
    */
   function restoreFocus(previous: StackItem | undefined, moveDomFocus: boolean): void {
     const items = stackItems();
@@ -385,7 +399,7 @@ export function createControls(deps: ControlsDeps): Controls {
     setView('details');
     applyGithubHref();
     applyInfoPanel();
-    applyMenuLibrary();
+    applyMenuItems();
     focusStackBottom();
     applyFocus(); // the bar highlight clears while the popup is open
   }
@@ -412,9 +426,9 @@ export function createControls(deps: ControlsDeps): Controls {
   }
 
   /**
-   * Library: to the carousel. From an entry that is a step BACK to a different place, so it pushes a
-   * history entry; from the landing page the strip is a layer over where you already are, so the hash is
-   * replaced instead — the same distinction `back()` relies on.
+   * Go back / Collection: to the carousel. From an entry that is a step BACK to a different place, so it
+   * pushes a history entry; from the landing page the strip is a layer over where you already are, so
+   * the hash is replaced instead — the same distinction `back()` relies on.
    */
   function openCarousel(): void {
     closePopup();
@@ -432,7 +446,7 @@ export function createControls(deps: ControlsDeps): Controls {
     if (popupView === 'confirm') {
       audio.play('back');
       setView('details');
-      applyMenuLibrary();
+      applyMenuItems();
       focusStackBottom();
       return;
     }
@@ -556,7 +570,7 @@ export function createControls(deps: ControlsDeps): Controls {
       menuGithub.click();
       return;
     }
-    if (item === libraryItem) {
+    if (item === homeItem) {
       // Non-destructive, so no confirm: the popup's own close is the sound, and the strip takes over.
       openCarousel();
       return;
@@ -932,7 +946,7 @@ export function createControls(deps: ControlsDeps): Controls {
     endInput();
   });
 
-  applyMenuLibrary();
+  applyMenuItems();
   applyFocus();
   armIdleTimer();
 
@@ -940,7 +954,7 @@ export function createControls(deps: ControlsDeps): Controls {
     setCollection(state: ListState, entries: readonly CollectionEntry[]): void {
       collectionEntries = state === 'ready' ? entries : [];
       const previous = stackItems()[stackIndex];
-      applyMenuLibrary();
+      applyMenuItems();
       restoreFocus(previous, false);
       applyGithubHref();
       // The feed can land with the menu already open on a cold deep link — fill the panel that was empty.
@@ -952,12 +966,12 @@ export function createControls(deps: ControlsDeps): Controls {
       // rather than letting a clamped index land on whichever button now occupies that slot.
       focusIndex = barFocusables().indexOf(moreButton);
       applyGithubHref();
-      applyMenuLibrary();
+      applyMenuItems();
       applyFocus();
     },
 
     onScreen(): void {
-      applyMenuLibrary();
+      applyMenuItems();
       applyFocus();
     },
 
@@ -970,7 +984,7 @@ export function createControls(deps: ControlsDeps): Controls {
         focusStackBottom();
       }
       const previous = stackItems()[stackIndex];
-      applyMenuLibrary();
+      applyMenuItems();
       applyInfoPanel();
       restoreFocus(previous, false);
       applyFocus(); // Play comes and goes with the session — so does the no-play layout
