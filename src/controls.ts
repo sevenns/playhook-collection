@@ -293,9 +293,12 @@ export function createControls(deps: ControlsDeps): Controls {
     const items = stackItems();
     if (items.length === 0) return;
     // Cyclic (wrap around), as in the launcher. The early return keeps a one-item stack from playing
-    // `navigate` without moving: at length 1 the wrap formula returns the same index.
+    // `navigate` without moving: at length 1 the wrap formula returns the same index — a dead end.
     const next = (stackIndex + delta + items.length) % items.length;
-    if (next === stackIndex) return;
+    if (next === stackIndex) {
+      audio.playLimit();
+      return;
+    }
     stackIndex = next;
     audio.play('navigate');
     applyStackFocus(true);
@@ -373,6 +376,7 @@ export function createControls(deps: ControlsDeps): Controls {
   }
 
   function openDetails(): void {
+    audio.play('popup-open'); // the panel's own sound — the press that opened it plays none of its own
     popup.classList.add('is-open');
     popup.setAttribute('aria-hidden', 'false');
     // The closed popup only fades out via opacity, so without dropping `inert` its controls would be
@@ -397,6 +401,7 @@ export function createControls(deps: ControlsDeps): Controls {
 
   function closePopup(): void {
     if (popupView === 'none') return;
+    audio.play('popup-close');
     popupView = 'none';
     popup.classList.remove('is-open');
     popup.setAttribute('aria-hidden', 'true');
@@ -432,8 +437,7 @@ export function createControls(deps: ControlsDeps): Controls {
       return;
     }
     if (popupView === 'details') {
-      audio.play('back');
-      closePopup();
+      closePopup(); // its own popup-close is the sound of this step
       return;
     }
     if (carousel.screen() === 'carousel') {
@@ -444,7 +448,10 @@ export function createControls(deps: ControlsDeps): Controls {
     if (router.current().kind === 'game') {
       audio.play('back');
       router.goHome();
+      return;
     }
+    // The bare landing page is the top level: there is nothing above it to step back to.
+    audio.playLimit();
   }
 
   // ── Bar focus (horizontal) ───────────────────────────────────────────────────
@@ -478,7 +485,7 @@ export function createControls(deps: ControlsDeps): Controls {
     }
   }
 
-  function moveFocus(delta: number): void {
+  function moveFocus(delta: number, repeat = false): void {
     if (!focusActive()) return;
     // Dormant (the idle timeout cleared the highlight): the first press only WAKES it at the current
     // button — it doesn't move — so control comes back without a jump.
@@ -489,10 +496,13 @@ export function createControls(deps: ControlsDeps): Controls {
       return;
     }
     // Clamped, NOT cyclic: the launcher wraps its vertical stacks but stops at the ends of the bar.
-    // Hitting the edge is silent — no move, no sound.
+    // Hitting the edge is a dead end and says so — on a fresh press, not on every repeat of a hold.
     const items = barFocusables();
     const next = Math.min(items.length - 1, Math.max(0, focusIndex + delta));
-    if (next === focusIndex) return;
+    if (next === focusIndex) {
+      if (!repeat) audio.playLimit();
+      return;
+    }
     focusIndex = next;
     audio.play('navigate');
     applyFocus();
@@ -536,8 +546,7 @@ export function createControls(deps: ControlsDeps): Controls {
   }
 
   function triggerMore(): void {
-    audio.play('button');
-    openDetails();
+    openDetails(); // the panel's own popup-open is the sound of this press
   }
 
   function triggerStackItem(item: StackItem): void {
@@ -548,8 +557,7 @@ export function createControls(deps: ControlsDeps): Controls {
       return;
     }
     if (item === libraryItem) {
-      // Leaving an entry for the strip is a step back; opening the strip from the landing page is not.
-      audio.play(router.current().kind === 'game' ? 'back' : 'button');
+      // Non-destructive, so no confirm: the popup's own close is the sound, and the strip takes over.
       openCarousel();
       return;
     }
@@ -711,24 +719,36 @@ export function createControls(deps: ControlsDeps): Controls {
     deps.onFlipping(false);
   }
 
-  /** Everything that ends when the input is let go. Both halves of the release detection (the pad's
-   *  onDirectionsReleased, the keyboard's keyup) come through here. */
+  /**
+   * Everything that ends when the input is let go: the flip spell, and the `limit` latch — a series of
+   * blocked attempts ends on release, so the next dead end sounds again (see sfx-limit.ts). Both halves
+   * of the release detection (the pad's onDirectionsReleased, the keyboard's keyup) come through here.
+   */
   function endInput(): void {
     endFlip();
+    audio.rearmLimit();
   }
 
   // `repeat` marks a press produced by the hold auto-repeat rather than by a fresh one. A held left/right
   // flips the strip (and is what starts the flip spell); a held up/down runs the popup stack like any
-  // other vertical list — it wraps, so there is no edge to stop at.
+  // other vertical list — it wraps, so there is no edge to stop at. The strip's ends are dead ends and
+  // say so — but only on a fresh press: one gesture running down the whole catalogue must not end in a
+  // sound, and `locked` (the return-morph still running) is not a dead end at all.
   function navLeft(repeat = false): void {
     if (repeat) noteFlip();
-    if (onCarousel()) carousel.move(-1);
-    else moveFocus(-1);
+    if (onCarousel()) {
+      if (carousel.move(-1) === 'at-end' && !repeat) audio.playLimit();
+      return;
+    }
+    moveFocus(-1, repeat);
   }
   function navRight(repeat = false): void {
     if (repeat) noteFlip();
-    if (onCarousel()) carousel.move(1);
-    else moveFocus(1);
+    if (onCarousel()) {
+      if (carousel.move(1) === 'at-end' && !repeat) audio.playLimit();
+      return;
+    }
+    moveFocus(1, repeat);
   }
   function navUp(repeat = false): void {
     if (repeat) noteFlip();
@@ -750,9 +770,12 @@ export function createControls(deps: ControlsDeps): Controls {
       carousel.activate();
       return;
     }
-    // Nothing is selected while the highlight is dormant — the user must wake it first. A mouse CLICK
-    // still works: it goes nowhere near this gate.
-    if (!focusRevealed) return;
+    // Nothing is selected while the highlight is dormant — the user must wake it first (A presses
+    // nothing, and says so). A mouse CLICK still works: it goes nowhere near this gate.
+    if (!focusRevealed) {
+      audio.playLimit();
+      return;
+    }
     const btn = barFocusables()[focusIndex];
     if (btn === undefined) return;
     pressFlash(btn);
@@ -773,11 +796,13 @@ export function createControls(deps: ControlsDeps): Controls {
 
   /**
    * The buttons the launcher gives to its overlay screens (Y, X, the shoulders, RT) have no surface to
-   * drive here — there is no keyboard, no file picker, no Settings. They stay in the contract so the
-   * gamepad module is a 1:1 copy, and count as activity so a press still wakes the highlight.
+   * drive here — there is no keyboard, no file picker, no Settings — and the launcher's own answer for a
+   * button nobody claims is the dead-end sound, not silence. They stay in the contract so the gamepad
+   * module is a 1:1 copy. A HELD X (it repeats like a direction) sounds once, like any other hold.
    */
-  function navUnclaimed(): void {
+  function navUnclaimed(repeat = false): void {
     noteNavActivity();
+    if (!repeat) audio.playLimit();
   }
 
   const gamepad = createGamepadController(
