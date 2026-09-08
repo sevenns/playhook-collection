@@ -21,6 +21,7 @@ import { createScroller } from './screen-scroller.js';
 import { createSidebar } from './screen-sidebar.js';
 import {
   buildSettingsModel,
+  isFocusable,
   volumePercent,
   type ActionId,
   type SectionId,
@@ -32,7 +33,7 @@ import {
   type ToggleId,
 } from './settings-form-model.js';
 import type { AudioOptions } from './audio.js';
-import type { SiteSettings } from './settings.js';
+import { LAUNCHER_VERSION, type SiteSettings } from './settings.js';
 import { optionLabelNode, patchRow, renderRows, type RenderedRow } from './settings-form-view.js';
 
 /** Gamepad A doesn't trigger :active — the same press flash the rest of the UI uses (controls.ts). */
@@ -75,22 +76,34 @@ export interface SettingsScreen extends NavSurface {
   applyAudioOptions(options: AudioOptions): void;
 }
 
-/** Applies a toggle's new value to a settings snapshot, so the screen repaints without a round trip. */
-function withToggle(id: ToggleId, value: boolean): Partial<SiteSettings> {
+/**
+ * Applies a toggle's new value to a settings snapshot. Only the Audio toggle can get here — every other
+ * one is inert (settings-form-model.ts) and never reaches a writer — but the mapping is exhaustive over
+ * the whole id union anyway, so a row that stops being inert cannot silently write nothing.
+ */
+function withToggle(id: ToggleId, value: boolean): Partial<SiteSettings> | null {
   switch (id) {
-    case 'keepAwake':
-      return { keepAwake: value };
     case 'onlyGlobalAmbient':
       return { onlyGlobalAmbient: value };
+    case 'prerelease':
+    case 'summonHotkey':
+    case 'preventScreensaver':
+    case 'keepOpenWithoutCard':
+    case 'disableSilentInstall':
+    case 'steamAutoLaunch':
+      return null;
   }
 }
 
-function withSelect(id: SelectId, value: string): Partial<SiteSettings> {
+function withSelect(id: SelectId, value: string): Partial<SiteSettings> | null {
   switch (id) {
     case 'soundSet':
       return { soundSet: value };
     case 'ambientTrack':
       return { ambientTrack: value === '' ? null : value };
+    case 'autoUpdate':
+    case 'language':
+      return null;
   }
 }
 
@@ -114,6 +127,7 @@ function clampPercent(percent: number): number {
 export function createSettingsScreen(deps: SettingsScreenDeps): SettingsScreen {
   const app = req('app');
   const screen = req('settings');
+  const versionEl = req('settings-version');
   const veil = screen.querySelector<HTMLElement>('.settings-veil');
   const listEl = req('settings-list');
   const optionsEl = req('settings-options');
@@ -131,8 +145,11 @@ export function createSettingsScreen(deps: SettingsScreenDeps): SettingsScreen {
   /** The rows of the SELECTED section only — the pane shows one section at a time. */
   let rendered: readonly RenderedRow[] = [];
   let focusIndex = 0;
+  /** The section a fresh visit opens on: the first one the model lists, whatever that turns out to be. */
+  const firstSection = (): SectionId => model.sections[0]?.id ?? 'audio';
+
   /** Which section the column has SELECTED, and which one the pane is actually showing. */
-  let sectionId: SectionId = 'general';
+  let sectionId: SectionId = firstSection();
   let paneId: SectionId | null = null;
   let previewTimer = 0;
 
@@ -179,6 +196,11 @@ export function createSettingsScreen(deps: SettingsScreenDeps): SettingsScreen {
     return rendered[focusIndex];
   }
 
+  /** Whether a row is here to be read rather than changed (see LabeledRow.inert). */
+  function isInert(row: SettingsRow): boolean {
+    return row.kind !== 'note' && row.inert === true;
+  }
+
   function pressFlash(el: HTMLElement): void {
     el.classList.add('is-pressed');
     window.setTimeout(() => el.classList.remove('is-pressed'), PRESS_MS);
@@ -215,7 +237,7 @@ export function createSettingsScreen(deps: SettingsScreenDeps): SettingsScreen {
     flushPreview();
     model = buildSettingsModel(deps.getSettings(), options);
     renderColumn();
-    const rows = rowsOf(sectionId);
+    const rows = rowsOf(sectionId).filter((row) => isFocusable(row));
     if (rendered.length === rows.length && paneId === sectionId) {
       rendered.forEach((row, index) => {
         const next = rows[index];
@@ -242,10 +264,7 @@ export function createSettingsScreen(deps: SettingsScreenDeps): SettingsScreen {
   /** Draws the selected section into the pane. The column is rebuilt separately. */
   function renderPane(): void {
     paneId = sectionId;
-    rendered = renderRows(listEl, rowsOf(sectionId));
-    rendered.forEach((row, at) =>
-      row.el.style.setProperty('--row-index', String(Math.min(at, ENTRANCE_STEPS))),
-    );
+    rendered = renderRows(listEl, rowsOf(sectionId), ENTRANCE_STEPS);
     entrance.play();
     focusIndex = Math.min(Math.max(focusIndex, 0), Math.max(0, rendered.length - 1));
     applyRowFocus(true);
@@ -292,8 +311,10 @@ export function createSettingsScreen(deps: SettingsScreenDeps): SettingsScreen {
   // ── Value changes ──────────────────────────────────────────────────────────
 
   function toggleRow(row: Extract<SettingsRow, { kind: 'toggle' }>): void {
+    const change = withToggle(row.id, !row.value);
+    if (change === null) return;
     deps.audio.play('button');
-    deps.onChange(withToggle(row.id, !row.value));
+    deps.onChange(change);
   }
 
   /** Moves a dropdown to another value, animating the text in the direction of the press. */
@@ -305,11 +326,13 @@ export function createSettingsScreen(deps: SettingsScreenDeps): SettingsScreen {
   ): void {
     if (value === row.value) return;
     const valueEl = rendered[rowIndex]?.valueEl;
+    const change = withSelect(row.id, value);
+    if (change === null) return;
     if (valueEl !== undefined && direction !== null) {
       valueEl.classList.add(direction === 'prev' ? 'is-shift-prev' : 'is-shift-next');
       window.setTimeout(() => valueEl.classList.remove('is-shift-prev', 'is-shift-next'), 120);
     }
-    deps.onChange(withSelect(row.id, value));
+    deps.onChange(change);
     // The sound set is switched by that very change, so the cue is heard in the set that was just
     // chosen — which is the point of choosing one.
     deps.audio.play('navigate');
@@ -487,6 +510,10 @@ export function createSettingsScreen(deps: SettingsScreenDeps): SettingsScreen {
     const target = focusedRow();
     if (target === undefined) return;
     const row = target.row;
+    if (isInert(row)) {
+      if (!repeat) deps.audio.playLimit(); // shown to be read, not to be changed
+      return;
+    }
     // A checkbox is NOT stepped through: left/right belong to the rows that have a range to move along,
     // and a two-state row answering them by flipping means a walk across the form changes a setting on
     // the way past. A checkbox is switched with A, and only with A.
@@ -503,6 +530,10 @@ export function createSettingsScreen(deps: SettingsScreenDeps): SettingsScreen {
 
   function activateRow(target: RenderedRow, index: number): void {
     const row = target.row;
+    if (isInert(row)) {
+      deps.audio.playLimit();
+      return;
+    }
     switch (row.kind) {
       case 'toggle':
         pressFlash(target.el);
@@ -517,6 +548,12 @@ export function createSettingsScreen(deps: SettingsScreenDeps): SettingsScreen {
         break;
       case 'slider':
         deps.audio.playLimit(); // a slider is moved with left/right, and A has nothing to press on it
+        break;
+      case 'text':
+      case 'update-status':
+      case 'note':
+        // Only ever reached for a row that is not inert, which none of these three ever is here.
+        deps.audio.playLimit();
         break;
     }
   }
@@ -680,10 +717,11 @@ export function createSettingsScreen(deps: SettingsScreenDeps): SettingsScreen {
       if (open) return;
       open = true;
       focusIndex = 0;
+      versionEl.textContent = LAUNCHER_VERSION;
       app.dataset['overlay'] = 'settings';
       screen.setAttribute('aria-hidden', 'false');
       sidebar.reset(); // a re-opened screen starts at the first section, column and pane together
-      sectionId = 'general';
+      sectionId = firstSection();
       // …and the pane is REBUILT rather than patched: the rows still in it belong to whichever section
       // the last visit ended on, and patching those with section one's values crosses the two.
       paneId = null;

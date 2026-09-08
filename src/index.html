@@ -124,14 +124,19 @@
         </div>
       </section>
 
-      <!-- Settings: the launcher's fourth surface, cut down to what a web page can honestly keep — the
-           audio it plays and the one General row a browser can honour (see settings.ts). Structurally
-           the Library's twin, with an expanded-dropdown layer of its own on top. -->
+      <!-- Settings: the launcher's fourth surface, WHOLE — every section it has, in its order, with its
+           own labels. Only the Audio rows are live; the rest carry the launcher's out-of-the-box values
+           and are inert, because a web page has nothing to update, no card and no installer (see
+           settings-form-model.ts). Structurally the Library's twin, with an expanded-dropdown layer of
+           its own on top. -->
       <section id="settings" class="settings" aria-hidden="true">
         <div class="settings-veil"></div>
         <div class="settings-column">
           <div class="settings-header">
             <div class="settings-title">Settings</div>
+            <!-- Where the launcher prints its own version: here it names the release this UI is a copy
+                 of, which is the same question the number answers there. -->
+            <div class="settings-version" id="settings-version"></div>
           </div>
           <!-- TWO columns: the screen's sections (and the actions that end it) on the left, the rows of
                the selected section on the right — see screen-sidebar.ts. -->
@@ -202,7 +207,9 @@
             <div class="actions-group" data-group="details">
               <!-- Force close: the only way out of a session. Shown while one is RUNNING and not
                    already closing down — exactly the launcher's rule (see controls.ts). -->
-              <button id="menu-kill" class="text-button is-hidden" type="button">Force close</button>
+              <button id="menu-kill" class="text-button is-hidden" type="button">
+                Force close
+              </button>
               <!-- Remove from library: drops the entry the bar is describing from the catalogue — the
                    same catalogue the Library screen shows, which is what lets the launcher's own wording
                    be honest here. In the launcher it deletes a record kept on disk; here the catalogue is

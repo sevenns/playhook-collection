@@ -13,7 +13,6 @@ import { createOsk } from './osk.js';
 import { createRouter, type Route } from './router.js';
 import { createSettingsScreen } from './settings-screen.js';
 import { createSettingsStore, loadAudioOptions, type SiteSettings } from './settings.js';
-import { createWakeLock } from './wake-lock.js';
 import { loadIndex, type CollectionEntry, type ListState } from './collection.js';
 import { busyKindOf, createSessionController, statusOf } from './session.js';
 import { preload } from './preload.js';
@@ -51,7 +50,6 @@ const FLIP_SETTLE_MS = AUTO_CHAIN_MS + NAV_REPEAT_MS;
 const app = req('app');
 const audio = createAudioController();
 const settingsStore = createSettingsStore();
-const wakeLock = createWakeLock();
 const router = createRouter();
 const hero = createHeroController();
 const session = createSessionController();
@@ -254,7 +252,6 @@ function applySettings(settings: SiteSettings): void {
   audio.setMusicVolume(settings.musicVolume);
   audio.setAmbient(ambientUrl(settings.ambientTrack));
   audio.setOnlyGlobalAmbient(settings.onlyGlobalAmbient);
-  wakeLock.set(settings.keepAwake);
   settingsScreen.applySettings(settings);
 }
 

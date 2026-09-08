@@ -1,15 +1,11 @@
-// The site's own settings: the small half of playhook's AppSettings that a web page can honestly keep.
+// The site's settings: the half of playhook's AppSettings a web page can actually act on — its audio.
 //
-// The launcher persists ~17 fields to settings.json in its userData directory and pushes every change
-// back to the renderer over IPC. A page has neither, so what stands in for both is `localStorage` — a
+// The SCREEN shows the launcher's settings whole (see settings-form-model.ts); this file is only about
+// the ones that are live, because those are the only ones there is anything to store. The launcher
+// persists seventeen fields to settings.json in its userData directory and pushes every change back to
+// the renderer over IPC; a page has neither, so what stands in for both is `localStorage` — a
 // first-party, strictly-functional preference store, which is also why there is no consent question
-// attached to it. The values that survive are the ones a showcase can act on at all: the audio ones
-// (which are the whole point of the screen) and the one General row a browser can honour.
-//
-// Everything the launcher keeps that a page cannot has been left out rather than shown greyed: update
-// mode and pre-release channel (nothing here self-updates), interface language (the site has no i18n
-// layer), the summon hotkey, "keep open without a card", silent install, the Steam Deck auto-launch and
-// the SteamGridDB key (no card, no installer, no store lookups). See PORTED-FROM.md.
+// attached to it.
 import { DEFAULT_AMBIENT_TRACK, DEFAULT_SOUND_SET, type AudioOptions } from './audio.js';
 
 /** What the site keeps, mirroring the fields of playhook's AppSettings it shares. */
@@ -24,26 +20,37 @@ export interface SiteSettings {
   readonly onlyGlobalAmbient: boolean;
   /** 0..1, shared by the ambience and by an entry's music — as in the launcher. */
   readonly musicVolume: number;
-  /** Hold a screen wake lock while the page is open (see wake-lock.ts). */
-  readonly keepAwake: boolean;
 }
 
-/**
- * The launcher's own defaults (app-settings.ts, DEFAULT_SETTINGS), for every field the two share — the
- * showcase should behave like the product out of the box.
- *
- * BROWSER: `keepAwake` is the one that does NOT follow it. The launcher defaults preventScreensaver to
- * true, which is right for a fullscreen kiosk the user opened on purpose; a web page that stops the
- * screen from sleeping without being asked is simply a bad guest, so here it starts off.
- */
+/** The launcher's own defaults (app-settings.ts, DEFAULT_SETTINGS) for the fields the two share. */
 export const DEFAULT_SETTINGS: SiteSettings = {
   soundSet: DEFAULT_SOUND_SET,
   sfxVolume: 1,
   ambientTrack: DEFAULT_AMBIENT_TRACK,
   onlyGlobalAmbient: false,
   musicVolume: 0.5,
-  keepAwake: false,
 };
+
+/**
+ * The launcher's defaults for the fields this page has no say over — what a freshly installed Playhook
+ * shows in those rows. They are frozen VALUES, not settings: nothing here writes them, and the rows that
+ * display them are inert (see settings-form-model.ts). Copied from playhook @ c26fae7 :
+ * src/main/app-settings.ts, DEFAULT_SETTINGS.
+ */
+export const LAUNCHER_DEFAULTS = {
+  autoUpdate: 'download-install',
+  allowPrerelease: false,
+  language: 'system',
+  summonHotkeyEnabled: true,
+  preventScreensaver: true,
+  keepOpenWithoutCard: true,
+  disableSilentInstall: false,
+  steamAutoLaunch: true,
+  steamGridDbApiKey: '',
+} as const;
+
+/** The Playhook release this UI was copied from — shown beside the screen title, as the launcher does. */
+export const LAUNCHER_VERSION = '0.8.0';
 
 const STORAGE_KEY = 'playhook-collection:settings';
 
@@ -91,8 +98,6 @@ function parseSettings(raw: unknown): SiteSettings {
         ? source['onlyGlobalAmbient']
         : DEFAULT_SETTINGS.onlyGlobalAmbient,
     musicVolume: clampVolume(source['musicVolume']) ?? DEFAULT_SETTINGS.musicVolume,
-    keepAwake:
-      typeof source['keepAwake'] === 'boolean' ? source['keepAwake'] : DEFAULT_SETTINGS.keepAwake,
   };
 }
 

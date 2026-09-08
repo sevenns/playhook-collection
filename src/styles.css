@@ -1392,6 +1392,13 @@ html:not(.mouse-asleep) .text-button:hover,
   transition: color 0.45s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* Where the launcher prints its own version — here, the release this UI is a copy of. */
+.settings-version {
+  font-weight: 300;
+  font-size: calc(24 * var(--px));
+  color: color-mix(in srgb, var(--fg) 55%, transparent);
+}
+
 /* The two columns: the section list on the left, the selected section's content on the right. */
 .settings-body {
   flex: 1 1 auto;
@@ -1987,6 +1994,119 @@ html:not(.mouse-asleep) .setting-row:hover .setting-check {
 .setting-slider.is-dragging .setting-fill,
 .setting-slider.is-dragging .setting-knob {
   transition: none;
+}
+
+/* A row that is here to be READ, not changed: every row outside Audio, which describes the launcher on
+   the user's own machine (settings-form-model.ts). The launcher uses the same treatment for a control it
+   shows but will not let this screen touch — shown, not hidden, because hiding it hides the reason. */
+.setting-row.is-disabled {
+  opacity: 0.4;
+}
+
+.setting-row.is-disabled .text-button {
+  cursor: default;
+}
+
+/* Updates row: the status line (+ progress bar) on the left, the primary action on the right. Its bar
+   never moves here — nothing is downloading — but the row is the launcher's, bar included. */
+.setting-row-status {
+  align-items: center;
+}
+
+.setting-status-body {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: calc(10 * var(--px));
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.setting-status-text {
+  font-weight: 300;
+  font-size: calc(26 * var(--px));
+  line-height: calc(36 * var(--px));
+  overflow-wrap: anywhere;
+}
+
+.setting-progress {
+  /* Height, not display: the bar has to COLLAPSE when idle (otherwise the status text is pushed off the
+     row's centre line, away from its button) yet still grow in smoothly when a download starts. */
+  height: 0;
+  width: calc(420 * var(--px));
+  max-width: 100%;
+  border-radius: calc(4 * var(--px));
+  background: color-mix(in srgb, currentColor 30%, transparent);
+  opacity: 0;
+  transition:
+    opacity 0.2s ease,
+    height 0.2s ease;
+}
+
+.setting-progress.is-visible {
+  height: calc(8 * var(--px));
+  opacity: 1;
+}
+
+.setting-progress-fill {
+  height: 100%;
+  width: 0;
+  border-radius: calc(4 * var(--px));
+  background: currentColor;
+  transition: width 0.3s ease;
+}
+
+/* An unset value is present but quiet — the row still reads as a row, and the placeholder says what is
+   missing rather than leaving a blank. */
+.setting-value.is-empty {
+  opacity: 0.5;
+  font-style: italic;
+}
+
+/* A note is text inside the list, and its three tones are told apart WITHOUT a colour of their own:
+   info is a quiet tinted block, warning gains an outline, error inverts to the accent. */
+.setting-row-note {
+  display: block;
+  min-height: 0;
+  padding: calc(12 * var(--px)) calc(32 * var(--px));
+  border: calc(2 * var(--px)) solid transparent;
+  border-radius: calc(10 * var(--px));
+  background: color-mix(in srgb, var(--d2) 12%, transparent);
+}
+
+.setting-row-note .setting-note-text {
+  font-weight: 400;
+  font-size: calc(22 * var(--px));
+  line-height: calc(30 * var(--px));
+  color: var(--d2);
+}
+
+.setting-row-note.is-warning {
+  border-color: var(--d2);
+  background: transparent;
+}
+
+.setting-row-note.is-warning .setting-note-text {
+  font-weight: 500;
+}
+
+.setting-row-note.is-error {
+  background: var(--d2);
+}
+
+.setting-row-note.is-error .setting-note-text {
+  color: var(--d1);
+  font-weight: 500;
+}
+
+/* An inert row (a note) must never light up under the mouse — it cannot be activated or focused. */
+.setting-row.is-inert {
+  pointer-events: none;
+}
+
+html:not(.mouse-asleep) .setting-row.is-inert:hover {
+  background: transparent;
+  color: var(--d2);
 }
 
 /* ── Expanded dropdown ──────────────────────────────────────────────────────

@@ -1,12 +1,10 @@
 // DOM for the Settings screen's rows: a SettingsRow in, the nodes the controller patches out. Ported
-// from playhook @ c26fae7 (release/v0.8.0) : src/renderer/row-view-core.ts, narrowed to the three kinds
-// this screen has — a toggle, a dropdown and a slider. The launcher shares that file with its Customize
-// screen, which needs seven more kinds; here the two screens have no row kind in common at all (the site's
-// Customize collects text and files, see game-settings-screen.ts), so there is nothing to share.
+// from playhook @ c26fae7 (release/v0.8.0) : src/renderer/row-view-core.ts and the Settings-specific
+// half of settings-form-view.ts (the update-status row with its progress bar), i18n resolved away.
 //
 // Inline SVG built with createElementNS, never innerHTML: the CSP forbids external resources, and
 // building the nodes is the project's rule for markup that isn't in index.html.
-import type { SettingsRow } from './settings-form-model.js';
+import { isFocusable, type SettingsRow } from './settings-form-model.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -84,13 +82,29 @@ function applySliderPercent(fill: HTMLElement, knob: HTMLElement, percent: numbe
   knob.style.left = `${percent}%`;
 }
 
-function buildRow(row: SettingsRow): RenderedRow {
-  const el = div('setting-row');
-  el.dataset['kind'] = row.kind;
+/** What a value cell shows: the value, or the placeholder when the value is empty. */
+function valueOrPlaceholder(
+  value: string,
+  placeholder: string | undefined,
+): { readonly text: string; readonly empty: boolean } {
+  if (value !== '') return { text: value, empty: false };
+  return { text: placeholder ?? '', empty: true };
+}
+
+/** The label side of a row (absent for the kinds that are nothing but their own content). */
+function appendLabelBox(el: HTMLElement, row: SettingsRow): void {
+  if (row.kind === 'note' || row.kind === 'update-status') return;
   const labelBox = div('setting-label-box');
   labelBox.append(div('setting-label', row.label));
   if (row.hint !== undefined) labelBox.append(div('setting-hint', row.hint));
   el.append(labelBox);
+}
+
+function buildRow(row: SettingsRow): RenderedRow {
+  const el = div('setting-row');
+  el.dataset['kind'] = row.kind;
+  if (row.kind !== 'note' && row.inert === true) el.classList.add('is-disabled');
+  appendLabelBox(el, row);
 
   switch (row.kind) {
     case 'toggle': {
@@ -119,17 +133,53 @@ function buildRow(row: SettingsRow): RenderedRow {
       el.append(control);
       return { row, el, valueEl: value, fillEl: fill };
     }
+    case 'text': {
+      const shown = valueOrPlaceholder(row.value, row.placeholder);
+      const value = div('setting-value setting-value-wide', shown.text);
+      value.classList.toggle('is-empty', shown.empty);
+      el.append(value);
+      return { row, el, valueEl: value, fillEl: null };
+    }
+    case 'update-status': {
+      el.classList.add('setting-row-status');
+      const text = div('setting-status-text', row.text);
+      const progress = div('setting-progress');
+      progress.append(div('setting-progress-fill'));
+      const body = div('setting-status-body');
+      body.append(text, progress);
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'text-button';
+      button.textContent = row.action;
+      el.append(body, button);
+      return { row, el, valueEl: text, fillEl: null };
+    }
+    case 'note': {
+      el.classList.add('setting-row-note', 'is-inert', `is-${row.tone}`);
+      const text = div('setting-note-text', row.text);
+      el.append(text);
+      return { row, el, valueEl: text, fillEl: null };
+    }
   }
 }
 
-/** Renders one section's rows into `container` (replacing its content), in screen order. */
+/**
+ * Renders one section's rows into `container` (replacing its content) and returns the FOCUSABLE ones, in
+ * screen order — a note is drawn but never held, so the navigation model is this array's indices and it
+ * steps over notes by construction. The stagger index counts every row, notes included, so the arrival
+ * runs down the list as it is seen.
+ */
 export function renderRows(
   container: HTMLElement,
   rows: readonly SettingsRow[],
+  entranceSteps: number,
 ): readonly RenderedRow[] {
   const rendered = rows.map((row) => buildRow(row));
+  rendered.forEach((row, at) =>
+    row.el.style.setProperty('--row-index', String(Math.min(at, entranceSteps))),
+  );
   container.replaceChildren(...rendered.map((row) => row.el));
-  return rendered;
+  return rendered.filter((row) => isFocusable(row.row));
 }
 
 /**
@@ -154,5 +204,15 @@ export function patchRow(rendered: RenderedRow, row: SettingsRow): void {
       }
       break;
     }
+    case 'text': {
+      const shown = valueOrPlaceholder(row.value, row.placeholder);
+      rendered.valueEl.textContent = shown.text;
+      rendered.valueEl.classList.toggle('is-empty', shown.empty);
+      break;
+    }
+    case 'update-status':
+    case 'note':
+      rendered.valueEl.textContent = row.text;
+      break;
   }
 }

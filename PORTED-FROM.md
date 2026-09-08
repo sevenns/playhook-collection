@@ -22,11 +22,10 @@ written; re-check against the merged HEAD or the `v0.8.0` tag before relying on 
 | `src/system-cards.ts`, `src/system-card-icons.ts` | same names | the launcher carries four cards (Library / Notifications / Settings / System); the site carries the two it has something behind — see below |
 | `src/library-grid.ts` | `src/renderer/library-grid.ts` | geometry and stepping 1:1; the SECTIONS are the site's own (see below) |
 | `src/library-screen.ts` | `src/renderer/library-screen.ts` | ported; its artwork machinery is not (there a cover is a data URL main generates on first sight, so the screen needs a bounded cache with a request queue and an eviction callback — here a cover is a URL and the browser's cache is that cache). The row window, the FLIP re-flow, the section arrival, the focus body, the sidebar and the six primitives all come across |
-| `src/settings-screen.ts` | `src/renderer/settings-screen.ts` | ported: the column, the pane, the preview debounce, the expanded dropdown with its marquee, the slider drag, the hover guard and the six primitives all come across. Its IPC seam does not — a change is applied to the audio controller and written to `localStorage` in the same breath (see `src/settings.ts`) — and neither does the update-status row, which is the one row kind that is Settings' own upstream |
-| `src/settings-form-model.ts` | same name | the SHAPE 1:1 (sections → rows, `volumePercent`, `prettifyName`, the ambience dropdown's empty value ⇄ `null`); the rows themselves are the subset a web page can act on — see below |
-| `src/settings-form-view.ts` | `src/renderer/row-view-core.ts` | narrowed to the three kinds this screen has (toggle / select / slider), i18n resolved away. The launcher shares that file with its Customize screen; here the two screens have no row kind in common, so there is nothing to share |
-| `src/settings.ts` | `src/main/app-settings.ts` + its IPC | only the fields the two share, and `localStorage` in place of `settings.json`. `DEFAULT_SETTINGS` is the launcher's own, one deliberate exception aside (see below) |
-| `src/wake-lock.ts` | — | new; the launcher asks Electron's `powerSaveBlocker` and it simply holds. On the web the lock is dropped whenever the document hides and has to be re-taken, and may be refused outright |
+| `src/settings-screen.ts` | `src/renderer/settings-screen.ts` | ported: the column, the pane, the preview debounce, the expanded dropdown with its marquee, the slider drag, the hover guard and the six primitives all come across. Its IPC seam does not — a change is applied to the audio controller and written to `localStorage` in the same breath (see `src/settings.ts`) |
+| `src/settings-form-model.ts` | same name | every section and every row, in the launcher's order, with its labels and hints. Only the Audio rows are live — see below |
+| `src/settings-form-view.ts` | `src/renderer/row-view-core.ts` + the Settings half of `settings-form-view.ts` | the row kinds this screen uses (toggle / select / slider / text / note / update-status), i18n resolved away. The launcher shares the core with its Customize screen; here the site's Customize has row kinds of its own (text and a file picker), so there is nothing to share |
+| `src/settings.ts` | `src/main/app-settings.ts` + its IPC | the fields the page can act on, and `localStorage` in place of `settings.json`; `LAUNCHER_DEFAULTS` carries the rest as frozen values for the rows that only display them. `DEFAULT_SETTINGS` is the launcher's own |
 | `public/ambience/*.ogg` | `audio/ambience/*.mp3` | all eleven of the launcher's 0.8.0 tracks, re-encoded to Vorbis: `ffmpeg -i <track>.mp3 -c:a libvorbis -q:a 4 <track>.ogg`. The extension is dropped from the stored name (the launcher keeps `playhook-abyss.mp3`, the site keeps `playhook-abyss`) |
 | `src/osk.ts`, `src/osk-text.ts` | `src/renderer/osk.ts`, `src/renderer/osk-text.ts` | 1:1, with the launcher's English labels inlined where it reads its i18n layer, and the clipboard read through the browser rather than main |
 | `src/game-settings-screen.ts` | `src/renderer/game-settings-screen.ts` | the SHAPE only — see below |
@@ -84,27 +83,24 @@ and why a public web page cannot.
   to power down, so Notifications and System stay behind; the row carries **Library** and **Settings**.
   With that grid in place the strip's cap of nine (`MAX_STRIP_GAMES`) is applied as the launcher applies
   it: everything past the ninth entry is reached through the Library, which holds every one of them.
-- **Settings keeps the settings a web page can act on, and drops the rest outright.** Not greyed —
-  absent: a screen of dead controls with two live ones says less about the launcher than a short screen
-  that works. What survives is the whole **Audio** section — the sound set, its volume, the ambience
-  track, "only global ambience" and its volume, in the launcher's own order, with its own labels and its
-  own defaults — plus one **General** row. What does not: Updates (nothing here self-updates), Language
-  (the site has no i18n layer at all), the summon hotkey, "keep open without a card", silent install and
-  the Steam Deck auto-launch (no card, no installer, no Steam), and the SteamGridDB key (0.8.0 looks
-  metadata up in the stores; this page looks nothing up).
-- **…and it keeps them in `localStorage`.** The launcher persists to `settings.json` in its userData
+- **Settings is the launcher's screen WHOLE, and only Audio is live.** Every section, every row, in the
+  launcher's order, with its labels, its hints and the values a freshly installed Playhook shows —
+  Updates (status line, mode, pre-release), Language, General (all five toggles, the Steam Deck one
+  included, which upstream is hidden off a Deck), Game metadata, Audio. This is a showcase: half a
+  Settings screen shows half a launcher, so nothing is left out. What differs is that everything outside
+  Audio is INERT — shown to be read, at the launcher's `disabled` opacity, answering A and left/right with
+  the dead-end sound. Nothing here self-updates, the site has no i18n layer, and there is no card, no
+  installer and no store lookup to configure. One row the launcher does not have says so, in its own
+  `note` row kind, at the top of the first section.
+- **The header's version is the launcher's release, not the site's.** The launcher prints its own
+  `app.getVersion()` beside the title; the site prints the Playhook release this UI was copied from
+  (`LAUNCHER_VERSION`), which is the same question that number answers there.
+- **…and it keeps the live ones in `localStorage`.** The launcher persists to `settings.json` in its userData
   directory and pushes every change back over IPC; the page writes the same snapshot to first-party
   storage and hands it straight to the audio controller. Every access is wrapped: a browser in private
   mode throws on the property, not just on the call, and a settings screen is not worth a blank page. It
   is strictly functional storage — a preference the user set on this page, read by nobody else — which is
   why no consent question hangs off it.
-- **"Keep the screen awake" is off by default, and it is the launcher's setting that changes meaning.**
-  There `preventScreensaver` defaults to true and Electron's `powerSaveBlocker` simply holds it, which is
-  right for a fullscreen kiosk the user opened on purpose. A web page that stops the screen from sleeping
-  without being asked is a bad guest, so here it starts off — and the lock itself is a different animal:
-  the browser drops it whenever the document hides, so it is re-taken on `visibilitychange`, and it can be
-  refused outright (an unsupported browser, an insecure origin, a battery saver) with nothing to do about
-  it but keep working (`src/wake-lock.ts`).
 - **The ambience is the launcher's, `idle` rule included.** Its engine resolves `browseMusic ?? cardMusic
   ?? ambient`; the site has no card, so it resolves two sources instead of three. What is ported verbatim
   is the DISTINCTION the launcher draws with `setBrowseMusic(url, idle)`: standing on a site card is not
