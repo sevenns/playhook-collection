@@ -915,17 +915,54 @@ html.kbd-focus .play-button:focus-visible {
 
 .popup-veil {
   position: absolute;
+  /* NOT narrowed like .popup-blur: that layer's mask reaches full opacity at screen 36%, a hair past
+     its own 35% box edge, so cutting the box there loses nothing visible. This one's mask does not
+     reach full opacity until 58%, and the background tint keeps climbing all the way to 100% — cutting
+     the box at 35% chopped off a third of that still-rising curve, which showed up as a hard seam right
+     through a focused row's highlight instead of the intended smooth fade. Full-width it stays. */
   inset: 0;
   /* Horizontal gradient: transparent on the left (hero visible) → solid d1 on the right. */
   background: linear-gradient(to right, transparent 0%, var(--d1) 100%);
-  /* BROWSER: prefixed twin for Safari < 18 (see #bottom-bar). */
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
-  /* Mask so the frosted blur only appears on the right, fading in from the center. */
+  /* Mask so the tint only builds up on the right, fading in from the center. */
   -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 58%);
   mask-image: linear-gradient(to right, transparent 0%, #000 58%);
   opacity: 0;
   transition: opacity 0.35s ease;
+  /* Keep this on its own composited layer: promoting it mid-animation is a frame the launcher can't
+     spare, and that frame is exactly when the focus tends to move (see .popup-blur). */
+  will-change: opacity;
+}
+
+/* The frosted layer, SEPARATE from the tint above and deliberately NOT animated.
+
+   A backdrop-filter re-samples everything beneath it, and Chromium rasterizes that region afresh the
+   first time a given popup shows it — one costly frame, once per popup (after that the raster is
+   cached, which is why the stutter never repeated on the same popup). Two things keep that frame away
+   from the moment the user is navigating:
+    • the blur is switched on in ONE frame, never faded, so the cost lands on the press itself;
+    • `will-change: transform` pins it to its own composited layer for good, so the layer is neither
+      created nor thrown away as the animations ABOVE it (the tint, the column) start and finish — that
+      hand-off was itself a repaint of the whole blurred region. */
+.popup-blur {
+  position: absolute;
+  /* Only the RIGHT part of the screen, not inset:0. The mask hid the left half anyway, so a full-width
+     layer was sampling — and re-sampling — twice the pixels it ever showed. The mask keeps the soft
+     start, now measured against this narrower box (0.58 of the screen ≈ 0.36 of a box starting at 35%). */
+  left: 35%;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  /* BROWSER: prefixed twin for Safari < 18 (see #bottom-bar). */
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 36%);
+  mask-image: linear-gradient(to right, transparent 0%, #000 36%);
+  opacity: 0;
+  will-change: transform;
+}
+
+.popup.is-open .popup-blur {
+  opacity: 1;
 }
 
 /* Right column: 450px wide, inset 50px on right/top/bottom. The action stack is pushed to the bottom
@@ -944,6 +981,9 @@ html.kbd-focus .play-button:focus-visible {
   transition:
     transform 0.35s ease,
     opacity 0.35s ease;
+  /* Its own layer, permanently: promoting it when the slide starts and dropping it when the slide ends
+     repaints what is under it — including the blurred region (see .popup-blur). */
+  will-change: transform, opacity;
 }
 
 .popup.is-open {
@@ -955,6 +995,59 @@ html.kbd-focus .play-button:focus-visible {
 .popup.is-open .popup-column {
   transform: none;
   opacity: 1;
+}
+
+/* The stats and the action items come in one after another as the popup opens: the column slides in as a
+   whole (see .popup-column), and its contents arrive just behind it instead of being fully drawn the
+   moment it lands. The wave runs BOTTOM-UP — the item nearest the bottom of its block goes first — which
+   is both the direction the items rise from AND where the focus lands: the bottom item is the one the
+   user is already looking at, and having it arrive last made the whole menu feel slow to open. Counting
+   with nth-LAST-child is what keeps that true however many items the current menu happens to have.
+   Keyed on .is-open, so the animation restarts on every open. `both` holds the first frame during the
+   delay — without it each item would flash at full opacity before its turn. */
+@keyframes popup-item-in {
+  from {
+    opacity: 0;
+    transform: translateY(calc(12 * var(--px)));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.popup.is-open .info-item,
+.popup.is-open .actions-group > .text-button {
+  animation: popup-item-in 0.3s cubic-bezier(0.2, 0, 0.2, 1) both;
+  animation-delay: calc(0.12s + var(--pop, 0) * 45ms);
+}
+
+.popup.is-open .info-item:nth-last-child(2),
+.popup.is-open .actions-group > .text-button:nth-last-child(2) {
+  --pop: 1;
+}
+.popup.is-open .info-item:nth-last-child(3),
+.popup.is-open .actions-group > .text-button:nth-last-child(3) {
+  --pop: 2;
+}
+.popup.is-open .actions-group > .text-button:nth-last-child(4) {
+  --pop: 3;
+}
+.popup.is-open .actions-group > .text-button:nth-last-child(5) {
+  --pop: 4;
+}
+.popup.is-open .actions-group > .text-button:nth-last-child(6) {
+  --pop: 5;
+}
+.popup.is-open .actions-group > .text-button:nth-last-child(n + 7) {
+  --pop: 6;
+}
+
+/* An item that collapses (or grows back) WHILE the popup is open must not have the entrance animation
+   sitting on its opacity — `both` would pin it at the animation's end value. The entrance has long
+   finished by then, so dropping it costs nothing. */
+.popup.is-open .actions-group > .text-button.is-hidden {
+  animation: none;
 }
 
 /* ── Popup content (the entry's play statistics) ────────────────────────────

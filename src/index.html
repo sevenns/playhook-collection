@@ -94,6 +94,8 @@
            `inert` while closed: the column only fades out via opacity, so without it the buttons would
            stay in the tab order (the launcher never cared — it is a kiosk with no tab key). -->
       <section id="popup" class="popup" aria-hidden="true" data-view="details" inert>
+        <!-- Two layers, on purpose: the tint fades, the frost switches on in one frame (styles.css). -->
+        <div class="popup-blur"></div>
         <div class="popup-veil"></div>
         <div class="popup-column">
           <!-- Top content: the entry's play statistics, built from JS (stats.ts). Same shape as the
