@@ -26,14 +26,7 @@ import { shouldPlayLimit } from './sfx-limit.js';
  * `typing` is a keystroke on the on-screen keyboard (osk.ts).
  */
 export type SfxName =
-  | 'navigate'
-  | 'button'
-  | 'back'
-  | 'play'
-  | 'limit'
-  | 'popup-open'
-  | 'popup-close'
-  | 'typing';
+  'navigate' | 'button' | 'back' | 'play' | 'limit' | 'popup-open' | 'popup-close' | 'typing';
 
 const SFX_FILES: Readonly<Record<SfxName, string>> = {
   navigate: './sfx/move.ogg',

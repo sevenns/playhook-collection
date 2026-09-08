@@ -179,8 +179,10 @@ export function createGameSettingsScreen(deps: GameSettingsScreenDeps): GameSett
   function problem(): string | null {
     if (title.trim() === '') return 'A name is needed — the catalogue lists entries by it.';
     const address = effectiveSlug();
-    if (address === '') return 'The address is empty: give the entry a name in latin letters, or type one.';
-    if (deps.slugTaken(address)) return `The address "${address}" is already taken by another entry.`;
+    if (address === '')
+      return 'The address is empty: give the entry a name in latin letters, or type one.';
+    if (deps.slugTaken(address))
+      return `The address "${address}" is already taken by another entry.`;
     return null;
   }
 
@@ -210,7 +212,10 @@ export function createGameSettingsScreen(deps: GameSettingsScreenDeps): GameSett
           value: effectiveSlug(),
           mode: 'id',
           onDone: (value) => {
-            const cleaned = value.toLowerCase().replace(SLUG_CHARS, '-').replace(/^-+|-+$/g, '');
+            const cleaned = value
+              .toLowerCase()
+              .replace(SLUG_CHARS, '-')
+              .replace(/^-+|-+$/g, '');
             slugEdited = cleaned !== '';
             slug = cleaned;
             markDirty();

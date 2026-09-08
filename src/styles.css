@@ -1679,7 +1679,6 @@ html:not(.mouse-asleep) .settings-nav-item:hover,
   box-shadow: 0 0 0 calc(2 * var(--px)) color-mix(in srgb, var(--d1) 85%, transparent);
 }
 
-
 /* ── The form pane (Customize) ──────────────────────────────────────────────
    The other half of the shared skeleton: where the Library puts a grid of covers, this puts the rows of
    the selected section. Ported from playhook @ c26fae7 — the launcher builds Settings and Customize on

@@ -344,7 +344,8 @@ export function createLibraryScreen(deps: LibraryScreenDeps): LibraryScreen {
    */
   function reorderSmoothly(apply: () => void): void {
     const before = new Map<string, { readonly left: number; readonly top: number }>();
-    for (const [key, node] of nodes) before.set(key, { left: node.offsetLeft, top: node.offsetTop });
+    for (const [key, node] of nodes)
+      before.set(key, { left: node.offsetLeft, top: node.offsetTop });
     apply();
     const shifted: HTMLElement[] = [];
     for (const [key, node] of nodes) {
