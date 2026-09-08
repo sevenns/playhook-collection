@@ -1,4 +1,4 @@
-// The collection carousel, ported from playhook @ 4461c60e75e18d98d77e80e70b9394e0bd0731a5 :
+// The collection carousel, ported from playhook @ c26fae7 (release/v0.8.0) :
 // src/renderer/carousel.ts — a strip of covers sliding under a fixed anchor while the selection stays
 // put. In the launcher it is the top-level SCREEN, above the bar screen of whichever game is selected;
 // here it is a layer over the landing page, switched on by the `#/collection` deep link (the Collection
@@ -14,10 +14,12 @@
 // `onBrowse` — this module never derives it. The geometry lives in carousel-geometry.ts (pure).
 import { type CollectionEntry } from './collection.js';
 import {
+  RETURN_FAN_MS,
   RETURN_LOCK_MS,
   clampIndex,
   fanIndex,
   isNearViewport,
+  isWithinWindow,
   stripOffset,
 } from './carousel-geometry.js';
 import { req } from './dom.js';
@@ -28,6 +30,14 @@ import { req } from './dom.js';
  * labelling it `detail` would hand it the entry screen's hero zoom.
  */
 export type Screen = 'home' | 'carousel' | 'detail';
+
+/**
+ * What a `move` did. `at-end` is the one the caller acts on: the strip is against a hard stop, so the
+ * press has nowhere to go and says so (see controls.ts). It must stay distinct from `locked`, which is
+ * the return-morph still running and means "this press does nothing at all" — treating the two alike
+ * would sound a dead end on every press right after coming back.
+ */
+export type MoveResult = 'moved' | 'at-end' | 'locked';
 
 export interface CarouselDeps {
   /** The selection landed on this entry: main repaints the bar copy, the hero and the music. */
@@ -43,8 +53,8 @@ export interface CarouselDeps {
 export interface Carousel {
   /** New catalogue from the feed. Keeps the selection BY SLUG. */
   setEntries(entries: readonly CollectionEntry[]): void;
-  /** Moves the selection by `delta` cards (no wrap-around — the ends are hard stops). */
-  move(delta: number): void;
+  /** Moves the selection by `delta` cards; says whether it moved, hit an end, or was locked mid-morph. */
+  move(delta: number): MoveResult;
   /**
    * Puts the selection on `slug` WITHOUT telling main about it — for the reverse direction, where the
    * route decided what is on screen and the strip has to follow. A no-op when the slug isn't in the list.
@@ -62,6 +72,13 @@ export interface Carousel {
   selected(): CollectionEntry | undefined;
   /** Marks the entry a session is running for, so its card can pulse wherever it sits in the strip. */
   setBusyEntry(slug: string | null): void;
+  /**
+   * A direction is being HELD, i.e. the row is flipping on its own. Cover loading pauses for the
+   * duration and resumes on release: the cards the flip ends on are the only ones anyone actually looks
+   * at, and a fetch per step is what makes a held flip stutter. The attribute it sets also switches the
+   * strip onto the glide timing (see --flip-step in styles.css).
+   */
+  setFlipping(flipping: boolean): void;
 }
 
 export function createCarousel(deps: CarouselDeps): Carousel {
@@ -77,6 +94,10 @@ export function createCarousel(deps: CarouselDeps): Carousel {
   // play square. Moving the selection through that resizes and reorders a card mid-morph, which shows.
   // Timestamp (performance.now) until which a move is refused; 0 = the card stands at full size.
   let lockedUntil = 0;
+  // Pending clear of `data-returning` (see markReturning); null when the strip is not returning.
+  let returnTimer: number | null = null;
+  // A direction is being held (main relays it) — cover loading waits it out. See setFlipping.
+  let flipping = false;
   const cards = new Map<string, HTMLElement>();
 
   /** The cover: the entry's own 2:3 art, or its first hero cropped to the card (see collection/README.md). */
@@ -104,6 +125,10 @@ export function createCarousel(deps: CarouselDeps): Carousel {
       const busy = entry.slug === busySlug;
       card.classList.toggle('is-busy', busy);
       card.classList.toggle('shows-dot', busy);
+      // Past the shown window (see VISIBLE_CARDS): still laid out — the strip's offset is positional and
+      // a removed node would shift every card after it — but faded out, so it slides in softly when the
+      // selection reaches it instead of popping into existence at the row's end.
+      card.classList.toggle('is-beyond', !isWithinWindow(position, index));
       // Its place in the fan the strip returns in (styles.css turns this into a transition-delay).
       card.style.setProperty('--fan', String(fanIndex(position, index)));
     });
@@ -115,6 +140,7 @@ export function createCarousel(deps: CarouselDeps): Carousel {
 
   /** Paints the covers of the cards near the selection (a long catalogue must not fetch them all). */
   function loadNearbyArt(): void {
+    if (flipping) return; // see setFlipping — the row is mid-flight, nobody is reading these cards yet
     entries.forEach((entry, position) => {
       const card = cards.get(entry.slug);
       if (card === undefined || card.classList.contains('has-art')) return;
@@ -193,7 +219,30 @@ export function createCarousel(deps: CarouselDeps): Carousel {
     // Coming back, the strip is unusable until the selected card is back at full size (RETURN_LOCK_MS);
     // leaving, nothing is locked — the entry screen has its own focus model.
     lockedUntil = effective === 'carousel' && morphs ? performance.now() + RETURN_LOCK_MS : 0;
+    markReturning(effective === 'carousel');
     deps.onScreenChange(effective);
+  }
+
+  /**
+   * Flags the staggered fan for as long as it runs (see RETURN_FAN_MS) — coming back from an entry AND
+   * opening the strip from the landing page, which here is the same entrance. CSS keys the fan's
+   * transition-delay on it, so a card that scrolls into the window while merely FLIPPING fades in
+   * immediately: the stagger belongs to the entrance, not to every appearance.
+   */
+  function markReturning(returning: boolean): void {
+    if (returnTimer !== null) {
+      window.clearTimeout(returnTimer);
+      returnTimer = null;
+    }
+    if (!returning) {
+      delete app.dataset['returning'];
+      return;
+    }
+    app.dataset['returning'] = 'true';
+    returnTimer = window.setTimeout(() => {
+      returnTimer = null;
+      delete app.dataset['returning'];
+    }, RETURN_FAN_MS);
   }
 
   /** Whether the selected card is still growing back to full size, i.e. must not be flipped through yet. */
@@ -207,16 +256,17 @@ export function createCarousel(deps: CarouselDeps): Carousel {
     deps.onActivate(current);
   }
 
-  function move(delta: number): void {
-    if (isLocked()) return;
+  function move(delta: number): MoveResult {
+    if (isLocked()) return 'locked';
     const next = clampIndex(index + delta, entries.length);
-    if (next === index) return; // at an end — no move, no sound
+    if (next === index) return 'at-end'; // no move — the caller decides what a stop means, sound included
     const moved = next - index;
     index = next;
     deps.onNavigate(moved);
     applyLayout();
     loadNearbyArt();
     announceSelection();
+    return 'moved';
   }
 
   return {
@@ -260,6 +310,18 @@ export function createCarousel(deps: CarouselDeps): Carousel {
       if (slug === busySlug) return;
       busySlug = slug;
       applyLayout();
+    },
+
+    setFlipping(next: boolean): void {
+      if (flipping === next) return;
+      flipping = next;
+      // The attribute switches the strip and the cards onto the glide timing (see --flip-step in
+      // styles.css): a held direction slides at one even speed instead of restarting an eased morph
+      // three times a second.
+      if (flipping) app.dataset['flipping'] = 'on';
+      else delete app.dataset['flipping'];
+      // Released: pick up the covers of wherever the row came to rest.
+      if (!flipping) loadNearbyArt();
     },
   };
 }
