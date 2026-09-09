@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "tunic",
+  "title": "Tunic",
+  "executable": "Tunic.exe",
+  "heroImage": ["assets/hero-1.webp"],
+  "gridImage": "assets/grid.webp",
+  "backgroundMusic": "assets/theme.mp3"
+}

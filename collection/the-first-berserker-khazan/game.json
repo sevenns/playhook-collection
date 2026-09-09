@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "the-first-berserker-khazan",
+  "title": "The First Berserker: Khazan",
+  "executable": "KZ.exe",
+  "heroImage": ["assets/hero-0.webp"],
+  "gridImage": "assets/grid.webp",
+  "backgroundMusic": "assets/theme.mp3"
+}

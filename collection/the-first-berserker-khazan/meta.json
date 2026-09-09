@@ -1,0 +1,11 @@
+{
+  "title": "The First Berserker: Khazan",
+  "author": "sevenns",
+  "verifiedAt": "2026-09-09",
+  "tested": ["win32"],
+  "preview": {
+    "hero": ["assets/hero-0.webp"],
+    "grid": "assets/grid.webp",
+    "music": "assets/theme.mp3"
+  }
+}

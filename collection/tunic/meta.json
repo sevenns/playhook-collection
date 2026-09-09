@@ -1,0 +1,11 @@
+{
+  "title": "Tunic",
+  "author": "sevenns",
+  "verifiedAt": "2026-09-09",
+  "tested": ["win32", "linux", "darwin"],
+  "preview": {
+    "hero": ["assets/hero-1.webp"],
+    "grid": "assets/grid.webp",
+    "music": "assets/theme.mp3"
+  }
+}
