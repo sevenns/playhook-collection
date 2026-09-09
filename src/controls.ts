@@ -564,11 +564,9 @@ export function createControls(deps: ControlsDeps): Controls {
   }
 
   // Back is a stack, not a single step: the confirm question steps back to the menu, the menu closes,
-  // then the carousel steps back to the bare landing page, and an entry screen steps out to whatever it
-  // was opened from. In the launcher the carousel IS
-  // the top level and B does nothing there; here it sits over home, so leaving it is a real step — and
-  // without it a gamepad or keyboard user would be stuck on the strip (the bar buttons are unreachable
-  // from it, exactly as in the launcher).
+  // and an entry screen steps out to whatever it was opened from. The STRIP is where it stops — the
+  // carousel is the top level now, exactly as in the launcher, and B there sounds the dead end rather
+  // than uncovering a landing page that no longer exists.
   function back(): void {
     if (popupView === 'confirm') {
       // A question a screen asked has nothing underneath it in this column: the popup goes, and the
@@ -590,17 +588,12 @@ export function createControls(deps: ControlsDeps): Controls {
       closePopup(); // its own popup-close is the sound of this step
       return;
     }
-    if (carousel.screen() === 'carousel') {
-      audio.play('back');
-      router.setCollectionVisible(false);
-      return;
-    }
     if (router.current().kind === 'game') {
       audio.play('back');
       router.goHome();
       return;
     }
-    // The bare landing page is the top level: there is nothing above it to step back to.
+    // The strip is the top level: there is nothing above it to step back to.
     audio.playLimit();
   }
 
@@ -931,6 +924,14 @@ export function createControls(deps: ControlsDeps): Controls {
     }
     moveFocus(1, repeat);
   }
+  /**
+   * Up, off an entry screen and back onto the strip it was picked from — the launcher's own pairing with
+   * `down` below, and the mouse-free counterpart of B. Nothing sits above the bar on an entry screen, so
+   * the direction is free to mean "out of here"; on the strip there is nothing above the cards at all.
+   *
+   * A HELD press is dropped, as everywhere a direction crosses a screen boundary: pausing a flip on a
+   * card must not walk out of the screen a moment later.
+   */
   function navUp(repeat = false): void {
     if (repeat) noteFlip();
     if (popupView !== 'none') {
@@ -942,8 +943,20 @@ export function createControls(deps: ControlsDeps): Controls {
       overlay.navUp(repeat);
       return;
     }
-    moveStackFocus(-1);
+    if (repeat) return;
+    if (router.current().kind === 'game') {
+      audio.play('back');
+      router.goHome();
+      return;
+    }
+    audio.playLimit(); // on the strip there is nothing above the cards to step up to
   }
+
+  /**
+   * …and down is the other half: it opens the selected entry, which is what A does. The strip only, and
+   * a GAME only — a site card is a surface rather than an entry, and opening one by brushing the stick
+   * downwards mid-flip is how you end up in a screen nobody asked for. Both rules are the launcher's.
+   */
   function navDown(repeat = false): void {
     if (repeat) noteFlip();
     if (popupView !== 'none') {
@@ -955,7 +968,12 @@ export function createControls(deps: ControlsDeps): Controls {
       overlay.navDown(repeat);
       return;
     }
-    moveStackFocus(1);
+    if (repeat || !onCarousel()) return;
+    if (carousel.selectedEntry() === undefined) {
+      audio.playLimit();
+      return;
+    }
+    carousel.activate();
   }
   function navActivate(): void {
     if (popupView === 'none') {

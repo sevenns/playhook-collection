@@ -69,15 +69,18 @@ interface Parsed {
 
 function parse(hash: string): Parsed {
   const path = hash.replace(/^#\/?/, '');
-  if (path === 'collection') return { route: { kind: 'home' }, wantsCollection: true };
   const match = /^collection\/([^/?#]+)$/.exec(path);
   const slug = match?.[1];
   // A slug arrives from the URL, i.e. from untrusted input: reject anything that isn't a slug BEFORE it
-  // can become part of a feed URL. Anything unrecognised is home, as is `#/` itself.
+  // can become part of a feed URL.
   if (slug !== undefined && isValidSlug(slug)) {
     return { route: { kind: 'game', slug }, wantsCollection: false };
   }
-  return { route: { kind: 'home' }, wantsCollection: false };
+  // Everything else — `#/`, `#/collection`, and anything unrecognised — is the carousel. The site used
+  // to open on a landing page with the strip as a layer over it, which is one level more than the
+  // launcher has: there the row IS the top level. `wantsCollection` stays in the shape because the
+  // ENTRY route still has to say the strip is not showing.
+  return { route: { kind: 'home' }, wantsCollection: true };
 }
 
 /** Structural comparison — the union's members are fresh objects on every parse, so `===` is always false. */
@@ -88,7 +91,7 @@ function sameRoute(a: Route, b: Route): boolean {
 }
 
 const hashOf = (route: Route): string =>
-  route.kind === 'home' ? '#/' : `#/collection/${route.slug}`;
+  route.kind === 'home' ? '#/collection' : `#/collection/${route.slug}`;
 
 export function createRouter(): Router {
   const titleEl = req('title');
@@ -170,7 +173,8 @@ export function createRouter(): Router {
 
     setCollectionVisible(visible: boolean): void {
       // Only home carries this bit: an entry screen is a place of its own, and `#/collection/<slug>`
-      // already names it.
+      // already names it. Nothing turns it OFF any more — the carousel is the top level and has nothing
+      // to step back to — but the setter stays: it is what re-shows the strip after an entry closes.
       if (route.kind !== 'home') return;
       if (visible === wantsCollection) return;
       wantsCollection = visible;
@@ -195,7 +199,7 @@ export function createRouter(): Router {
         history.back();
         return;
       }
-      window.location.hash = '#/';
+      window.location.hash = '#/collection';
     },
 
     start(onChange: (next: Route, collection: boolean) => void): void {

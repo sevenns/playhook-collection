@@ -113,6 +113,17 @@ export interface AudioController {
   setSfxVolume(volume: number): void;
   /** Starts/stops the background music to match the desired playing state (the visibility gate). */
   setMusicPlaying(shouldPlay: boolean): void;
+  /**
+   * Plays the bundled startup jingle, once. Resolves the moment playback actually STARTS — the boot
+   * sequence times its hand-over off it, so the swell and the picture stay in step (main.ts) — and
+   * resolves right away when it cannot play at all: a silent page must still boot.
+   *
+   * BROWSER: it usually cannot. A page may not make a sound before the visitor has interacted with it,
+   * and a cold load has no such gesture, so `play()` is refused and this resolves with `false`. There is
+   * no way around that from the page's side; the boot animation runs regardless, on its own clock. A
+   * RELOAD often does play it — Chromium remembers that this origin was allowed to make noise before.
+   */
+  playStartup(url: string): Promise<boolean>;
 }
 
 /** A live music element paired with the source URL it holds. */
@@ -170,9 +181,14 @@ export function createAudioController(): AudioController {
 
   let musicVolume = DEFAULT_MUSIC_VOLUME;
 
-  // The gate result (the tab is visible). NOT a short-circuit: a repeated `true` re-issues play() on the
-  // live element without restarting the fade.
+  // The gate result (the tab is visible AND the startup jingle has finished). NOT a short-circuit: a
+  // repeated `true` re-issues play() on the live element without restarting the fade.
   let wantPlay = false;
+  // What the page asked for, before the jingle gate below is applied to it.
+  let musicWanted = false;
+  // The startup jingle is still sounding. Music waits it out rather than playing underneath it: the two
+  // are unrelated pieces of audio and the overlap is just mush. The launcher's own rule.
+  let jinglePlaying = false;
 
   let fadeHandle: number | null = null;
   let lastTs = 0;
@@ -363,23 +379,52 @@ export function createAudioController(): AudioController {
       for (const el of sfx.values()) el.volume = volume;
     },
 
-    setMusicPlaying(shouldPlay: boolean): void {
-      wantPlay = shouldPlay;
-      if (shouldPlay) {
-        // Always (re-)issue play() on the live elements — this is what resurrects an element the OS
-        // muted. Then ramp only if we're not already at the target.
-        if (active !== null) void active.el.play().catch(() => undefined);
-        if (outgoing !== null) void outgoing.el.play().catch(() => undefined);
-        const settled = active === null || Math.abs(active.el.volume - musicVolume) <= FADE_EPSILON;
-        if (!settled || outgoing !== null) ensureFade();
-        return;
-      }
-      stopFade();
-      if (active !== null) active.el.pause();
-      if (outgoing !== null) {
-        drop(outgoing);
-        outgoing = null;
+    async playStartup(url: string): Promise<boolean> {
+      const el = new Audio(url);
+      el.volume = musicVolume;
+      const release = (): void => {
+        if (!jinglePlaying) return;
+        jinglePlaying = false;
+        applyMusicGate();
+      };
+      el.addEventListener('ended', release);
+      // A jingle that errors out mid-way must not hold the music hostage either.
+      el.addEventListener('error', release);
+      jinglePlaying = true;
+      try {
+        await el.play();
+        applyMusicGate(); // the gate only closes once the sound is actually going
+        return true;
+      } catch {
+        // Refused (no user gesture yet, no output device): let the music through and say so.
+        release();
+        return false;
       }
     },
+
+    setMusicPlaying(shouldPlay: boolean): void {
+      musicWanted = shouldPlay;
+      applyMusicGate();
+    },
   };
+
+  /** Applies the gate — what the page wants, minus the jingle still sounding over it. */
+  function applyMusicGate(): void {
+    wantPlay = musicWanted && !jinglePlaying;
+    if (wantPlay) {
+      // Always (re-)issue play() on the live elements — this is what resurrects an element the OS
+      // muted. Then ramp only if we're not already at the target.
+      if (active !== null) void active.el.play().catch(() => undefined);
+      if (outgoing !== null) void outgoing.el.play().catch(() => undefined);
+      const settled = active === null || Math.abs(active.el.volume - musicVolume) <= FADE_EPSILON;
+      if (!settled || outgoing !== null) ensureFade();
+      return;
+    }
+    stopFade();
+    if (active !== null) active.el.pause();
+    if (outgoing !== null) {
+      drop(outgoing);
+      outgoing = null;
+    }
+  }
 }

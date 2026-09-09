@@ -87,6 +87,12 @@ export interface Carousel {
    * user comes back from the surface that card opened.
    */
   focusSystem(id: SystemCardId): void;
+  /**
+   * Replays the cards' staggered arrival. The boot screen holds them at zero (styles.css) while the row
+   * is built underneath it, so the fan still has to happen when the wallpaper hands over — otherwise the
+   * whole carousel simply appears, as if it had been display:none. The launcher's `playIntro`.
+   */
+  playIntro(): void;
   /** Activates the selected card (A / a click on it). */
   activate(): void;
   /** The current screen level. */
@@ -268,8 +274,7 @@ export function createCarousel(deps: CarouselDeps): Carousel {
     // screen is invisible (see the morph block in styles.css). A site card has none — and no entry screen
     // to morph into either.
     const entry = selectedEntry();
-    const cover =
-      detailArt !== undefined ? detailArt : entry === undefined ? null : coverOf(entry);
+    const cover = detailArt !== undefined ? detailArt : entry === undefined ? null : coverOf(entry);
     playButton.style.setProperty('--card-art', cover === null ? 'none' : `url("${cover}")`);
   }
 
@@ -426,13 +431,16 @@ export function createCarousel(deps: CarouselDeps): Carousel {
 
   return {
     focusEntry(slug: string): void {
-      const position = items.findIndex(
-        (item) => item.kind === 'game' && item.entry.slug === slug,
-      );
+      const position = items.findIndex((item) => item.kind === 'game' && item.entry.slug === slug);
       if (position === -1 || position === index) return;
       index = position;
       applyLayout();
       loadNearbyArt();
+    },
+
+    playIntro(): void {
+      if (screen !== 'carousel') return;
+      markReturning(true);
     },
 
     focusSystem(id: SystemCardId): void {
