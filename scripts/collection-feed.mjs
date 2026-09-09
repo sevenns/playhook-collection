@@ -71,6 +71,13 @@ const heroesOf = (game) =>
       : [];
 
 /**
+ * The platforms `tested` may name — Node's own `process.platform` values, which is the vocabulary every
+ * entry in this repository already uses. Not the launcher's `HostPlatform` ('windows' / 'linux' /
+ * 'macos'): that one is internal to its renderer, and meta.json never reaches it.
+ */
+const TESTED_PLATFORMS = ['win32', 'linux', 'darwin'];
+
+/**
  * Derives a preview block from the manifest when meta.json has none. A fallback for typical entries,
  * NOT a contract: manifest paths are card-relative, so this only guesses that the basename lives in
  * `assets/`. See collection/README.md. Takes ONE game — a multi-game card previews as its first.
@@ -227,6 +234,21 @@ export async function buildCollectionFeed(root, dist) {
     }
     if (typeof meta.verifiedAt !== 'string' || meta.verifiedAt.length === 0) {
       throw new Error(`collection/${slug}/meta.json: "verifiedAt" is required`);
+    }
+    if (!Array.isArray(meta.tested) || meta.tested.length === 0) {
+      throw new Error(
+        `collection/${slug}/meta.json: "tested" is required (see collection/README.md)`,
+      );
+    }
+    // A red build on a typo, because nothing downstream would ever notice one: `tested` is for the
+    // people reading this repository — it is not published to the feed — so a stray "macos" or "osx"
+    // would sit there being quietly wrong for as long as nobody opened the file.
+    for (const platform of meta.tested) {
+      if (!TESTED_PLATFORMS.includes(platform)) {
+        throw new Error(
+          `collection/${slug}/meta.json: "tested" has ${JSON.stringify(platform)} — expected one of ${TESTED_PLATFORMS.join(', ')}`,
+        );
+      }
     }
 
     const declaredPreview =

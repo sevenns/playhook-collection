@@ -34,6 +34,12 @@ collection/
 actually ran the manifest — not the date the file was committed, and it is what the feed publishes as
 `updatedAt`.
 
+`tested` names the systems the manifest was actually run on, and it takes Node's own `process.platform`
+values — **`win32`**, **`linux`**, **`darwin`** (that last one is macOS). Not the words the launcher uses
+internally for the same thing: `meta.json` never reaches it. The build fails on anything else, because
+`tested` is not published to the feed — it is here for whoever reads the repository, so a typo would go
+unnoticed until somebody opened the file.
+
 **`preview` is what the site shows**, listed explicitly rather than read out of the manifest. The
 manifest is a file for somebody's card: its paths are card-relative and it references things the site has
 no use for. The preview is the shop window, and the two are allowed to differ. Paths are relative to the
