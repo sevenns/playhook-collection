@@ -2,8 +2,8 @@
 // the popup's vertical stack) and everything that drives them — clicks, hover, wheel, gamepad, keyboard,
 // and the idle timeout.
 //
-// Written by hand against playhook @ 4461c60e75e18d98d77e80e70b9394e0bd0731a5 : src/renderer/controls.ts
-// rather than trimmed down from it: of its 1000-odd lines only the parts with something left to do here
+// Written by hand against playhook @ c26fae7 (release/v0.8.0) : src/renderer/controls.ts
+// rather than trimmed down from it: of its 2000-odd lines only the parts with something left to do here
 // survive, and a "reduced port" would have dragged along abstractions with nothing to abstract (the
 // ControlsDeps state/translator seam, the confirm/error/power views, the multi-game card model). The
 // behaviour it does keep — bottom-anchored default focus, cyclic vertical navigation and CLAMPED
@@ -16,11 +16,14 @@
 // :focus-visible lands on the same control the highlight is on. The launcher suppresses Tab entirely —
 // it has no keyboard user to serve. The idle timeout therefore dims ONLY the custom highlight: taking
 // :focus-visible away too would leave a keyboard user with no marker of where they were mid-read.
-import { NAV_REPEAT_MS, createGamepadController } from './gamepad.js';
+import { HOLD_DELAY_MS, NAV_REPEAT_MS, createAutoRepeatChain } from './auto-repeat.js';
+import { createGamepadController } from './gamepad.js';
 import { type AudioController } from './audio.js';
 import { type Router } from './router.js';
 import { type CollectionEntry, type ListState } from './collection.js';
 import { type Carousel } from './carousel.js';
+import type { NavSurface } from './nav-surface.js';
+import type { SystemCardId } from './system-cards.js';
 import { type SessionController } from './session.js';
 import { formatDate, formatPlaytime, statsFor } from './stats.js';
 import { req, reqQuery } from './dom.js';
@@ -37,10 +40,27 @@ const REPO_URL = 'https://github.com/sevenns/playhook';
 const ENTRY_URL_PREFIX = 'https://github.com/sevenns/playhook-collection/tree/main/';
 
 /** Which view the popup is showing; 'none' means it is closed. */
-type PopupView = 'none' | 'details' | 'confirm';
+type PopupView = 'none' | 'details' | 'power' | 'confirm';
+
+/** Which action the confirm view is asking about (only meaningful while popupView === 'confirm'). */
+type ConfirmMode = 'kill' | 'forget' | 'discard' | 'reset';
+
+/** The launcher's own wording for the Settings column's Reset (`settings.confirmReset`). */
+const RESET_QUESTION = 'Reset all settings to defaults?';
+
+/** The launcher's own wording for leaving a form with unsaved edits (`gameSettings.confirmDiscard`). */
+const DISCARD_QUESTION = 'Discard the changes?';
 
 /** The launcher's own wording, kept verbatim — it is the one place the site can lose something. */
 const KILL_QUESTION = 'Force close the game? Unsaved progress may be lost.';
+
+/**
+ * …and the one question that CANNOT be the launcher's: there it reassures you that the saves and the
+ * playtime survive and the card brings the game back, which is true of a record on disk. Here the
+ * catalogue is a fetched feed, so the honest promise is the reload.
+ */
+const forgetQuestion = (title: string): string =>
+  `Remove "${title}" from the library? It comes back when you reload the page.`;
 
 /**
  * One entry in the popup's vertical focus stack. Two roles because they diverged for the search box the
@@ -52,6 +72,11 @@ interface StackItem {
   readonly visual: HTMLElement;
   /** Where DOM focus goes. */
   readonly focusTarget: HTMLElement;
+  /**
+   * Shown to be read, never pressed — the System stack's power actions. It still takes the focus (the
+   * same rule the inert form rows follow), and answers A with the dead-end sound.
+   */
+  readonly inert?: boolean;
 }
 
 export interface ControlsDeps {
@@ -59,12 +84,53 @@ export interface ControlsDeps {
   readonly router: Router;
   /** The carousel — the THIRD focus surface, above the bar and the popup stack (see navLeft…). */
   readonly carousel: Carousel;
+  /** The Library — a full-screen surface, above the strip and the bar but under the popup. */
+  readonly library: LibraryNav;
+  /** Customize (in add mode) — the second screen at that same level; never both open at once. */
+  readonly gameSettings: GameSettingsNav;
+  readonly settings: SettingsNav;
   /** The pretend game session Play starts and Force close ends. */
   readonly session: SessionController;
+  /**
+   * Which entry the bar is describing right now — its own screen, or the card the strip stands on. Owned
+   * by main.ts (the session status line follows the same notion), passed in rather than recomputed here
+   * so the two can never drift apart.
+   */
+  readonly browsedSlug: () => string | null;
+  /** "Remove from library" was confirmed for this slug. The entries are main's, so the removal is too. */
+  readonly onForget: (slug: string) => void;
+  /**
+   * A direction is being HELD, i.e. the strip is flipping on its own (true), or it has just been let go
+   * (false). The hero, the carousel's cover loading and the bar title all hold still for the duration —
+   * main.ts owns the settle window (see FLIP_SETTLE_MS there).
+   */
+  readonly onFlipping: (flipping: boolean) => void;
+}
+
+/**
+ * What the interaction layer needs from a full-screen screen. The launcher has three of them (Settings,
+ * Customize, Library) and routes into whichever is open; the site has the Library, and the seam is kept
+ * plural-shaped so the next one costs an entry in `overlays` rather than an edit in every primitive.
+ */
+export interface LibraryNav extends NavSurface {
+  open(options?: { readonly focusSlug?: string }): void;
+  close(silent?: boolean): void;
+}
+
+/** The same seam for the Customize screen — an OVERLAY like the Library, at the same level. */
+export interface GameSettingsNav extends NavSurface {
+  openNew(): void;
+  close(silent?: boolean): void;
+}
+
+/** …and for the Settings screen, the third one. */
+export interface SettingsNav extends NavSurface {
+  open(): void;
+  close(silent?: boolean): void;
 }
 
 export interface Controls {
-  /** New catalogue data (or a load state) for the Github link and the Library item. */
+  /** New catalogue data (or a load state) for the Github link and the Go back / Collection item. */
   setCollection(state: ListState, entries: readonly CollectionEntry[]): void;
   /** The route changed: relabel Github, re-evaluate the bar group and the menu. */
   onRoute(): void;
@@ -72,12 +138,50 @@ export interface Controls {
   onScreen(): void;
   /** The session changed phase: the Force close item and the statistics both follow it. */
   onSession(): void;
+  /** Opens the surface one of the strip's site cards stands for. */
+  openSystemCard(id: SystemCardId): void;
+  /** "Add game", from the Library's column — the site's only route to creating an entry. */
+  openAddGame(): void;
+  /** A screen asked its discard question; the answer comes back through `onYes`. */
+  confirmDiscard(onYes: () => void): void;
+  /** …and its reset question, from the Settings screen's own column. */
+  confirmReset(onYes: () => void): void;
+  /** A full-screen screen closed itself — put the bar highlight back on the More button it came from. */
+  screenClosed(): void;
   /** Starts the gamepad polling loop. */
   start(): void;
 }
 
 export function createControls(deps: ControlsDeps): Controls {
   const { audio, router, carousel, session } = deps;
+
+  /**
+   * The full-screen screens, as a set rather than as a named one. Every mechanism that has to stand down
+   * while a screen is up — the idle timer, the wheel, and all six primitives — asks THESE two questions
+   * instead of `library.isOpen()`, so the next screen is one entry in this list rather than an eleventh
+   * edit in every primitive.
+   */
+  const overlays = {
+    active: (): NavSurface | null => {
+      if (deps.library.isOpen()) return deps.library;
+      if (deps.gameSettings.isOpen()) return deps.gameSettings;
+      if (deps.settings.isOpen()) return deps.settings;
+      return null;
+    },
+    isAnyOpen: (): boolean =>
+      deps.library.isOpen() || deps.gameSettings.isOpen() || deps.settings.isOpen(),
+  };
+
+  // The glide step the strip animates one held move over (styles.css reads it as --flip-step). Slightly
+  // LONGER than the repeat itself, on purpose: the keyboard's repeats arrive on a timer and their real
+  // spacing wanders above NAV_REPEAT_MS. A step that outlasts the gap overlaps the next one and the row
+  // never stalls between them; an exact match would leave tiny holes. The CSS value is only the fallback.
+  const FLIP_STEP_MS = Math.round(NAV_REPEAT_MS * 1.3);
+  document.documentElement.style.setProperty('--flip-step', `${FLIP_STEP_MS}ms`);
+
+  // The shared warmth of an auto-move, so a run handed from one direction to the next — or from the pad
+  // to the keyboard — skips the initial delay instead of stalling (auto-repeat.ts).
+  const autoRepeat = createAutoRepeatChain();
 
   const app = req('app');
   const playButton = req<HTMLButtonElement>('play-button');
@@ -87,31 +191,72 @@ export function createControls(deps: ControlsDeps): Controls {
   const infoPanel = req('info-panel');
   const confirmMessage = req('confirm-message');
   const menuGithub = req<HTMLAnchorElement>('menu-github');
-  const menuLibrary = req<HTMLButtonElement>('menu-library');
+  const menuHome = req<HTMLButtonElement>('menu-home');
   const menuKill = req<HTMLButtonElement>('menu-kill');
+  const menuForget = req<HTMLButtonElement>('menu-forget');
   const menuClose = req<HTMLButtonElement>('menu-close');
+  const powerGithub = req<HTMLAnchorElement>('power-github');
+  const powerClose = req<HTMLButtonElement>('power-close');
   const confirmYes = req<HTMLButtonElement>('confirm-yes');
   const confirmNo = req<HTMLButtonElement>('confirm-no');
 
   const ALL_BAR_BUTTONS: readonly HTMLButtonElement[] = [playButton, moreButton];
 
   const githubItem: StackItem = { kind: 'button', visual: menuGithub, focusTarget: menuGithub };
-  const libraryItem: StackItem = { kind: 'button', visual: menuLibrary, focusTarget: menuLibrary };
+  const homeItem: StackItem = { kind: 'button', visual: menuHome, focusTarget: menuHome };
   const killItem: StackItem = { kind: 'button', visual: menuKill, focusTarget: menuKill };
+  const forgetItem: StackItem = { kind: 'button', visual: menuForget, focusTarget: menuForget };
   const closeItem: StackItem = { kind: 'button', visual: menuClose, focusTarget: menuClose };
+  // The System stack. Its five power actions are inert: a page cannot shut a machine down, reboot it,
+  // put it to sleep, or minimise and quit an application that is a browser tab.
+  const powerItems: readonly StackItem[] = [
+    'power-shutdown',
+    'power-reboot',
+    'power-sleep',
+    'power-minimize',
+    'power-quit',
+  ].map((id) => {
+    const el = req(id);
+    return { kind: 'button', visual: el, focusTarget: el, inert: true } as const;
+  });
+  const powerGithubItem: StackItem = {
+    kind: 'button',
+    visual: powerGithub,
+    focusTarget: powerGithub,
+  };
+  const powerCloseItem: StackItem = {
+    kind: 'button',
+    visual: powerClose,
+    focusTarget: powerClose,
+  };
   const yesItem: StackItem = { kind: 'button', visual: confirmYes, focusTarget: confirmYes };
   const noItem: StackItem = { kind: 'button', visual: confirmNo, focusTarget: confirmNo };
 
   const ALL_STATIC_ITEMS: readonly StackItem[] = [
-    githubItem,
-    libraryItem,
     killItem,
+    forgetItem,
+    homeItem,
+    githubItem,
     closeItem,
+    ...powerItems,
+    powerGithubItem,
+    powerCloseItem,
     yesItem,
     noItem,
   ];
 
   let popupView: PopupView = 'none';
+  /** What the open confirm is asking about. Meaningless while the view is not 'confirm'. */
+  let confirmMode: ConfirmMode = 'kill';
+  /** The entry an open removal question names — captured when it opens (see triggerStackItem). */
+  let forgetSlug: string | null = null;
+  /** What an open SCREEN's question runs on Yes. Only ever set while confirmMode is 'discard'. */
+  let pendingConfirm: (() => void) | null = null;
+  /**
+   * Where B / No returns FROM the confirm view. The menu's own questions step back into it; a question a
+   * SCREEN asked has no menu underneath — that screen is still open — so the popup simply goes.
+   */
+  let confirmReturnTo: 'details' | 'screen' = 'details';
   let stackIndex = 0;
   let focusIndex = 0;
   // Whether the bar's highlight is "awake". The idle timeout puts it to sleep so a page left alone stops
@@ -119,7 +264,7 @@ export function createControls(deps: ControlsDeps): Controls {
   // three places — the paint (applyFocus), the wake (moveFocus / noteMouseActivity) and the activation
   // gate (navActivate). Miss the first and the ring never appears at all.
   let focusRevealed = true;
-  let cursorHidden = false;
+  let mouseAsleep = false;
   let idleTimer = 0;
   let collectionEntries: readonly CollectionEntry[] = [];
 
@@ -159,13 +304,22 @@ export function createControls(deps: ControlsDeps): Controls {
   // ── The popup's focus stack ──────────────────────────────────────────────────
 
   /**
-   * Library is the only door to the carousel — in, from the landing page, and back, from an entry. It
-   * hides only where there is nothing behind it: a catalogue too short to flip through. (The menu never
-   * opens over the strip itself, so "already there" is not a case.)
+   * One item is the door to the carousel — in, from the landing page, and back, from an entry. It hides
+   * only where there is nothing behind it: a catalogue too short to flip through. (The menu never opens
+   * over the strip itself, so "already there" is not a case.)
    */
-  function libraryVisible(): boolean {
+  function homeVisible(): boolean {
     return carousel.exists();
   }
+
+  /**
+   * What that door is called. On an entry screen it is the launcher's own "Go back" (launcher.menu.goBack)
+   * — the strip is where the entry was opened from. On the landing page the launcher has no such item
+   * (its strip IS the top level), so the site names the destination instead: "Collection", the hash the
+   * item writes. "Library" is kept back for the grid screen that word means in 0.8.0.
+   */
+  const HOME_LABEL_BACK = 'Go back';
+  const HOME_LABEL_COLLECTION = 'Collection';
 
   /**
    * Force close is offered while a session is RUNNING and a close is not already in flight — during
@@ -194,18 +348,42 @@ export function createControls(deps: ControlsDeps): Controls {
     return active === null || active.slug === route.slug;
   }
 
-  function applyMenuLibrary(): void {
-    menuLibrary.classList.toggle('is-hidden', !libraryVisible());
+  /**
+   * Remove from library belongs to ONE entry — the one the bar is describing — so it exists wherever that
+   * entry is on screen (its own screen and its card in the strip) and nowhere else. The launcher's second
+   * rule, "not for a game that is available right now", has no direct counterpart on a site where nothing
+   * is installed; what survives of it is that a RUNNING entry is not history either — removing the game
+   * you are playing would leave a session pointing at a card that no longer exists.
+   */
+  function forgetVisible(): boolean {
+    const slug = deps.browsedSlug();
+    if (slug === null) return false;
+    const active = session.current();
+    return active === null || active.slug !== slug;
+  }
+
+  function applyMenuItems(): void {
     menuKill.classList.toggle('is-hidden', !killVisible());
+    menuForget.classList.toggle('is-hidden', !forgetVisible());
+    menuHome.classList.toggle('is-hidden', !homeVisible());
+    menuHome.textContent =
+      router.current().kind === 'game' ? HOME_LABEL_BACK : HOME_LABEL_COLLECTION;
   }
 
   function stackItems(): readonly StackItem[] {
     if (popupView === 'confirm') return [yesItem, noItem];
+    // The launcher's own order, with one item added: Github sits just above Close, where the site's
+    // other stack keeps it too.
+    if (popupView === 'power') return [...powerItems, powerGithubItem, powerCloseItem];
     if (popupView !== 'details') return [];
-    const items = [githubItem];
-    if (libraryVisible()) items.push(libraryItem);
+    // MUST match the DOM order in index.html — this list IS the up/down order, and a mismatch would move
+    // the highlight somewhere other than where the eye follows. Volatile items first, then the fixed
+    // block that ends at Close: see the note there.
+    const items: StackItem[] = [];
     if (killVisible()) items.push(killItem);
-    items.push(closeItem);
+    if (forgetVisible()) items.push(forgetItem);
+    if (homeVisible()) items.push(homeItem);
+    items.push(githubItem, closeItem);
     return items;
   }
 
@@ -233,9 +411,12 @@ export function createControls(deps: ControlsDeps): Controls {
     const items = stackItems();
     if (items.length === 0) return;
     // Cyclic (wrap around), as in the launcher. The early return keeps a one-item stack from playing
-    // `navigate` without moving: at length 1 the wrap formula returns the same index.
+    // `navigate` without moving: at length 1 the wrap formula returns the same index — a dead end.
     const next = (stackIndex + delta + items.length) % items.length;
-    if (next === stackIndex) return;
+    if (next === stackIndex) {
+      audio.playLimit();
+      return;
+    }
     stackIndex = next;
     audio.play('navigate');
     applyStackFocus(true);
@@ -251,10 +432,10 @@ export function createControls(deps: ControlsDeps): Controls {
   }
 
   /**
-   * The Library item comes and goes with the route, i.e. it changes how many items sit above the
-   * others — their INDEX. Restoring a remembered index instead of the remembered ELEMENT would slide the
-   * highlight onto a different button. So: remember the item, find it again, and fall back to the
-   * nearest valid position only if it left the stack.
+   * The volatile items come and go with the route and the session, i.e. they change how many items sit
+   * above the others — their INDEX. Restoring a remembered index instead of the remembered ELEMENT would
+   * slide the highlight onto a different button. So: remember the item, find it again, and fall back to
+   * the nearest valid position only if it left the stack.
    */
   function restoreFocus(previous: StackItem | undefined, moveDomFocus: boolean): void {
     const items = stackItems();
@@ -307,12 +488,28 @@ export function createControls(deps: ControlsDeps): Controls {
   // ── Popup ────────────────────────────────────────────────────────────────────
 
   /** Switching views keeps .is-open, so the shared veil never cross-fades — only the content changes. */
-  function setView(view: 'details' | 'confirm'): void {
+  function setView(view: 'details' | 'power' | 'confirm'): void {
     popupView = view;
     popup.dataset['view'] = view;
   }
 
+  /**
+   * The System stack, opened straight from the last card of the strip. There is no menu underneath it —
+   * the level above it is the carousel — so B and the veil close the popup outright rather than stepping
+   * back into Details, which is exactly what the launcher does for a card-opened view (`popupRoot`).
+   */
+  function openPower(): void {
+    audio.play('popup-open'); // the card's own `button` (main.ts) is the press; this is the panel
+    popup.classList.add('is-open');
+    popup.setAttribute('aria-hidden', 'false');
+    popup.removeAttribute('inert');
+    setView('power');
+    focusStackBottom(); // default focus: Close, the bottom item and the safe way out
+    applyFocus(); // the bar highlight clears while the popup is open
+  }
+
   function openDetails(): void {
+    audio.play('popup-open'); // the panel's own sound — the press that opened it plays none of its own
     popup.classList.add('is-open');
     popup.setAttribute('aria-hidden', 'false');
     // The closed popup only fades out via opacity, so without dropping `inert` its controls would be
@@ -321,14 +518,23 @@ export function createControls(deps: ControlsDeps): Controls {
     setView('details');
     applyGithubHref();
     applyInfoPanel();
-    applyMenuLibrary();
+    applyMenuItems();
     focusStackBottom();
     applyFocus(); // the bar highlight clears while the popup is open
   }
 
   /** The force-close question. One step deeper than Details, and B / No / the veil return there. */
-  function openConfirm(): void {
-    confirmMessage.textContent = KILL_QUESTION;
+  function openConfirm(mode: ConfirmMode, question: string): void {
+    confirmReturnTo = mode === 'discard' || mode === 'reset' ? 'screen' : 'details';
+    // A question raised by a screen opens the popup from scratch — there is no menu open underneath it.
+    if (popupView === 'none') {
+      audio.play('popup-open');
+      popup.classList.add('is-open');
+      popup.setAttribute('aria-hidden', 'false');
+      popup.removeAttribute('inert');
+    }
+    confirmMode = mode;
+    confirmMessage.textContent = question;
     setView('confirm');
     focusStackBottom(); // default focus: No, the safe answer
     applyFocus();
@@ -336,6 +542,7 @@ export function createControls(deps: ControlsDeps): Controls {
 
   function closePopup(): void {
     if (popupView === 'none') return;
+    audio.play('popup-close');
     popupView = 'none';
     popup.classList.remove('is-open');
     popup.setAttribute('aria-hidden', 'true');
@@ -346,9 +553,9 @@ export function createControls(deps: ControlsDeps): Controls {
   }
 
   /**
-   * Library: to the carousel. From an entry that is a step BACK to a different place, so it pushes a
-   * history entry; from the landing page the strip is a layer over where you already are, so the hash is
-   * replaced instead — the same distinction `back()` relies on.
+   * Go back / Collection: to the carousel. From an entry that is a step BACK to a different place, so it
+   * pushes a history entry; from the landing page the strip is a layer over where you already are, so
+   * the hash is replaced instead — the same distinction `back()` relies on.
    */
   function openCarousel(): void {
     closePopup();
@@ -364,15 +571,23 @@ export function createControls(deps: ControlsDeps): Controls {
   // from it, exactly as in the launcher).
   function back(): void {
     if (popupView === 'confirm') {
+      // A question a screen asked has nothing underneath it in this column: the popup goes, and the
+      // screen that raised it has the focus again.
+      if (confirmReturnTo === 'screen') {
+        pendingConfirm = null;
+        closePopup();
+        return;
+      }
       audio.play('back');
       setView('details');
-      applyMenuLibrary();
+      applyMenuItems();
       focusStackBottom();
       return;
     }
-    if (popupView === 'details') {
-      audio.play('back');
-      closePopup();
+    if (popupView === 'details' || popupView === 'power') {
+      // The System stack is opened straight from a card, so there is no menu underneath it to step back
+      // into — the level above it is the carousel itself, exactly as in the launcher.
+      closePopup(); // its own popup-close is the sound of this step
       return;
     }
     if (carousel.screen() === 'carousel') {
@@ -383,7 +598,10 @@ export function createControls(deps: ControlsDeps): Controls {
     if (router.current().kind === 'game') {
       audio.play('back');
       router.goHome();
+      return;
     }
+    // The bare landing page is the top level: there is nothing above it to step back to.
+    audio.playLimit();
   }
 
   // ── Bar focus (horizontal) ───────────────────────────────────────────────────
@@ -400,7 +618,10 @@ export function createControls(deps: ControlsDeps): Controls {
    * the card's stand-in, More is faded out — see styles.css), so the highlight has nothing to sit on.
    */
   function focusActive(): boolean {
-    return popupView === 'none' && carousel.screen() !== 'carousel';
+    if (popupView !== 'none') return false;
+    // A full-screen screen covers the bar (which is faded out and pointer-events:none underneath).
+    if (overlays.isAnyOpen()) return false;
+    return carousel.screen() !== 'carousel';
   }
 
   function applyFocus(): void {
@@ -417,7 +638,7 @@ export function createControls(deps: ControlsDeps): Controls {
     }
   }
 
-  function moveFocus(delta: number): void {
+  function moveFocus(delta: number, repeat = false): void {
     if (!focusActive()) return;
     // Dormant (the idle timeout cleared the highlight): the first press only WAKES it at the current
     // button — it doesn't move — so control comes back without a jump.
@@ -428,10 +649,13 @@ export function createControls(deps: ControlsDeps): Controls {
       return;
     }
     // Clamped, NOT cyclic: the launcher wraps its vertical stacks but stops at the ends of the bar.
-    // Hitting the edge is silent — no move, no sound.
+    // Hitting the edge is a dead end and says so — on a fresh press, not on every repeat of a hold.
     const items = barFocusables();
     const next = Math.min(items.length - 1, Math.max(0, focusIndex + delta));
-    if (next === focusIndex) return;
+    if (next === focusIndex) {
+      if (!repeat) audio.playLimit();
+      return;
+    }
     focusIndex = next;
     audio.play('navigate');
     applyFocus();
@@ -444,13 +668,18 @@ export function createControls(deps: ControlsDeps): Controls {
 
   // ── Actions ──────────────────────────────────────────────────────────────────
 
+  const entryOf = (slug: string): CollectionEntry | undefined =>
+    collectionEntries.find((candidate) => candidate.slug === slug);
+
   function applyGithubHref(): void {
     const route = router.current();
     if (route.kind === 'game') {
       // The path comes from the feed, not from a template built here: a reshuffled collection/ would
       // otherwise rot every link silently.
-      const entry = collectionEntries.find((candidate) => candidate.slug === route.slug);
-      if (entry !== undefined) {
+      const entry = entryOf(route.slug);
+      // Only a PUBLISHED entry has a directory here to link at; one added in the browser has none, so
+      // the button falls back to the launcher's repository rather than to a path that would 404.
+      if (entry !== undefined && entry.origin === 'collection') {
         menuGithub.href = `${ENTRY_URL_PREFIX}${entry.sourcePath}`;
         return;
       }
@@ -472,33 +701,58 @@ export function createControls(deps: ControlsDeps): Controls {
   }
 
   function triggerMore(): void {
-    audio.play('button');
-    openDetails();
+    openDetails(); // the panel's own popup-open is the sound of this press
   }
 
   function triggerStackItem(item: StackItem): void {
-    if (item === githubItem) {
-      // A real click on the anchor, so mouse, keyboard and gamepad all take the same path (and the
-      // click listener below plays the sound exactly once).
-      menuGithub.click();
+    if (item.inert === true) {
+      audio.playLimit(); // shown to be read — see StackItem.inert
       return;
     }
-    if (item === libraryItem) {
-      // Leaving an entry for the strip is a step back; opening the strip from the landing page is not.
-      audio.play(router.current().kind === 'game' ? 'back' : 'button');
+    if (item === githubItem || item === powerGithubItem) {
+      // A real click on the anchor, so mouse, keyboard and gamepad all take the same path (and the
+      // click listener below plays the sound exactly once).
+      item.visual.click();
+      return;
+    }
+    if (item === homeItem) {
+      // Non-destructive, so no confirm: the popup's own close is the sound, and the strip takes over.
       openCarousel();
       return;
     }
     if (item === killItem) {
       // Destructive in the launcher (unsaved progress), so it asks first — same here, same wording.
       audio.play('button');
-      openConfirm();
+      openConfirm('kill', KILL_QUESTION);
+      return;
+    }
+    if (item === forgetItem) {
+      // The slug is captured with the question, not read again on Yes: the strip can move under an open
+      // popup (a nav key still reaches it), and the entry the question named is the only one Yes may drop.
+      const slug = deps.browsedSlug();
+      if (slug === null) return;
+      const title = entryOf(slug)?.title ?? slug;
+      audio.play('button');
+      forgetSlug = slug;
+      openConfirm('forget', forgetQuestion(title));
       return;
     }
     if (item === yesItem) {
       audio.play('button');
+      const mode = confirmMode;
+      const pending = pendingConfirm;
+      pendingConfirm = null;
       closePopup();
-      session.requestKill();
+      if (mode === 'kill') {
+        session.requestKill();
+        return;
+      }
+      if (mode === 'discard' || mode === 'reset') {
+        pending?.();
+        return;
+      }
+      if (forgetSlug !== null) deps.onForget(forgetSlug);
+      forgetSlug = null;
       return;
     }
     back(); // Close, or No
@@ -506,17 +760,20 @@ export function createControls(deps: ControlsDeps): Controls {
 
   // ── Cursor & the idle timeout ────────────────────────────────────────────────
 
-  function setCursorHidden(hidden: boolean): void {
-    if (cursorHidden === hidden) return;
-    cursorHidden = hidden;
-    document.documentElement.classList.toggle('cursor-hidden', hidden);
+  function setMouseAsleep(asleep: boolean): void {
+    if (mouseAsleep === asleep) return;
+    mouseAsleep = asleep;
+    document.documentElement.classList.toggle('mouse-asleep', asleep);
   }
 
   function armIdleTimer(): void {
     if (idleTimer !== 0) window.clearTimeout(idleTimer);
+    // With a screen up there is no bar highlight to retire and no carousel to hand back to: firing would
+    // strip the return point on More and light the strip up under the veil.
+    if (overlays.isAnyOpen()) return;
     idleTimer = window.setTimeout(() => {
       idleTimer = 0;
-      setCursorHidden(true);
+      setMouseAsleep(true);
       if (focusRevealed && focusActive()) {
         focusRevealed = false;
         // No sleep class of its own: the highlight simply stops being painted, and the Play ring goes
@@ -530,7 +787,7 @@ export function createControls(deps: ControlsDeps): Controls {
    *  This is our OWN navigation (WASD/arrows/gamepad), which paints the .is-focused fill — so it also
    *  disarms the native ring, which is reserved for a plain Tab. */
   function noteNavActivity(): void {
-    setCursorHidden(true);
+    setMouseAsleep(true);
     setKeyboardMode(false);
     armIdleTimer();
   }
@@ -538,7 +795,7 @@ export function createControls(deps: ControlsDeps): Controls {
   /** Real mouse movement: show the pointer, and bring the dormant highlight back with it (silently —
    *  moving a mouse is not a navigation press and should not sound like one). */
   function noteMouseActivity(): void {
-    setCursorHidden(false);
+    setMouseAsleep(false);
     armIdleTimer();
     if (!focusRevealed) {
       focusRevealed = true;
@@ -576,8 +833,9 @@ export function createControls(deps: ControlsDeps): Controls {
   // The static stack controls. Github is an <a>: its click listener only plays the sound and lets the
   // navigation happen, so the scripted .click() above needs no second code path.
   menuGithub.addEventListener('click', () => audio.play('button'));
+  powerGithub.addEventListener('click', () => audio.play('button'));
   for (const item of ALL_STATIC_ITEMS) {
-    if (item !== githubItem) {
+    if (item !== githubItem && item !== powerGithubItem) {
       item.visual.addEventListener('click', () => {
         pressFlash(item.visual);
         triggerStackItem(item);
@@ -604,21 +862,109 @@ export function createControls(deps: ControlsDeps): Controls {
   // when it is open, then the carousel strip, then the bar.
   const onCarousel = (): boolean => popupView === 'none' && carousel.screen() === 'carousel';
 
-  function navLeft(): void {
-    if (onCarousel()) carousel.move(-1);
-    else moveFocus(-1);
+  // ── Held directions ────────────────────────────────────────────────────────
+  // A repeat press means a direction is being held. It ends on an explicit release — the pad reports one
+  // (onDirectionsReleased), the keyboard has keyup — but neither is guaranteed to arrive: the window can
+  // lose focus mid-hold and swallow the keyup, and a pad can be unplugged. So a watchdog closes it too,
+  // renewed on every repeat; at the repeat cadence (NAV_REPEAT_MS) this silence can only mean a stop.
+  const FLIP_WATCHDOG_MS = 400;
+  let flipping = false;
+  let flipWatchdog = 0;
+
+  function noteFlip(): void {
+    if (flipWatchdog !== 0) window.clearTimeout(flipWatchdog);
+    flipWatchdog = window.setTimeout(endFlip, FLIP_WATCHDOG_MS);
+    if (flipping) return;
+    flipping = true;
+    deps.onFlipping(true);
   }
-  function navRight(): void {
-    if (onCarousel()) carousel.move(1);
-    else moveFocus(1);
+
+  function endFlip(): void {
+    if (flipWatchdog !== 0) {
+      window.clearTimeout(flipWatchdog);
+      flipWatchdog = 0;
+    }
+    if (!flipping) return;
+    flipping = false;
+    deps.onFlipping(false);
   }
-  function navUp(): void {
+
+  /**
+   * Everything that ends when the input is let go: the flip spell, and the `limit` latch — a series of
+   * blocked attempts ends on release, so the next dead end sounds again (see sfx-limit.ts). Both halves
+   * of the release detection (the pad's onDirectionsReleased, the keyboard's keyup) come through here.
+   */
+  function endInput(): void {
+    endFlip();
+    audio.rearmLimit();
+  }
+
+  // `repeat` marks a press produced by the hold auto-repeat rather than by a fresh one. A held left/right
+  // flips the strip (and is what starts the flip spell); a held up/down runs the popup stack like any
+  // other vertical list — it wraps, so there is no edge to stop at. The strip's ends are dead ends and
+  // say so — but only on a fresh press: one gesture running down the whole catalogue must not end in a
+  // sound, and `locked` (the return-morph still running) is not a dead end at all.
+  function navLeft(repeat = false): void {
+    if (repeat) noteFlip();
+    // BEFORE the strip: a direction held on a screen must never flip the carousel underneath it.
+    const overlay = popupView === 'none' ? overlays.active() : null;
+    if (overlay !== null) {
+      overlay.navLeft(repeat);
+      return;
+    }
+    if (onCarousel()) {
+      if (carousel.move(-1) === 'at-end' && !repeat) audio.playLimit();
+      return;
+    }
+    moveFocus(-1, repeat);
+  }
+  function navRight(repeat = false): void {
+    if (repeat) noteFlip();
+    const overlay = popupView === 'none' ? overlays.active() : null;
+    if (overlay !== null) {
+      overlay.navRight(repeat);
+      return;
+    }
+    if (onCarousel()) {
+      if (carousel.move(1) === 'at-end' && !repeat) audio.playLimit();
+      return;
+    }
+    moveFocus(1, repeat);
+  }
+  function navUp(repeat = false): void {
+    if (repeat) noteFlip();
+    if (popupView !== 'none') {
+      moveStackFocus(-1);
+      return;
+    }
+    const overlay = overlays.active();
+    if (overlay !== null) {
+      overlay.navUp(repeat);
+      return;
+    }
     moveStackFocus(-1);
   }
-  function navDown(): void {
+  function navDown(repeat = false): void {
+    if (repeat) noteFlip();
+    if (popupView !== 'none') {
+      moveStackFocus(1);
+      return;
+    }
+    const overlay = overlays.active();
+    if (overlay !== null) {
+      overlay.navDown(repeat);
+      return;
+    }
     moveStackFocus(1);
   }
   function navActivate(): void {
+    if (popupView === 'none') {
+      const overlay = overlays.active();
+      if (overlay !== null) {
+        overlay.navActivate();
+        return;
+      }
+    }
     if (popupView !== 'none') {
       const item = stackItems()[stackIndex];
       if (item === undefined) return;
@@ -630,9 +976,12 @@ export function createControls(deps: ControlsDeps): Controls {
       carousel.activate();
       return;
     }
-    // Nothing is selected while the highlight is dormant — the user must wake it first. A mouse CLICK
-    // still works: it goes nowhere near this gate.
-    if (!focusRevealed) return;
+    // Nothing is selected while the highlight is dormant — the user must wake it first (A presses
+    // nothing, and says so). A mouse CLICK still works: it goes nowhere near this gate.
+    if (!focusRevealed) {
+      audio.playLimit();
+      return;
+    }
     const btn = barFocusables()[focusIndex];
     if (btn === undefined) return;
     pressFlash(btn);
@@ -640,25 +989,52 @@ export function createControls(deps: ControlsDeps): Controls {
     else triggerPlay();
   }
   function navBack(): void {
+    if (popupView === 'none') {
+      const overlay = overlays.active();
+      if (overlay !== null) {
+        overlay.navBack();
+        return;
+      }
+    }
     back();
   }
 
   // Both input models count as activity (and hide the cursor: the user has switched device).
   const withActivity =
-    (nav: () => void): (() => void) =>
-    (): void => {
+    (nav: (repeat: boolean) => void): ((repeat?: boolean) => void) =>
+    (repeat = false): void => {
       noteNavActivity();
-      nav();
+      nav(repeat);
     };
 
-  const gamepad = createGamepadController({
-    onLeft: withActivity(navLeft),
-    onRight: withActivity(navRight),
-    onUp: withActivity(navUp),
-    onDown: withActivity(navDown),
-    onA: withActivity(navActivate),
-    onB: withActivity(navBack),
-  });
+  /**
+   * The buttons the launcher gives to its overlay screens (Y, X, the shoulders, RT) have no surface to
+   * drive here — there is no keyboard, no file picker, no Settings — and the launcher's own answer for a
+   * button nobody claims is the dead-end sound, not silence. They stay in the contract so the gamepad
+   * module is a 1:1 copy. A HELD X (it repeats like a direction) sounds once, like any other hold.
+   */
+  function navUnclaimed(repeat = false): void {
+    noteNavActivity();
+    if (!repeat) audio.playLimit();
+  }
+
+  const gamepad = createGamepadController(
+    {
+      onLeft: withActivity(navLeft),
+      onRight: withActivity(navRight),
+      onUp: withActivity(navUp),
+      onDown: withActivity(navDown),
+      onA: withActivity(navActivate),
+      onB: withActivity(navBack),
+      onY: navUnclaimed,
+      onX: navUnclaimed,
+      onShoulderLeft: navUnclaimed,
+      onShoulderRight: navUnclaimed,
+      onTriggerRight: navUnclaimed,
+      onDirectionsReleased: endInput,
+    },
+    autoRepeat,
+  );
 
   // The wheel flips through the carousel. Throttled: one notch of a mouse wheel is one event, but a
   // trackpad emits a stream of them, which would fly past a dozen cards per gesture.
@@ -667,6 +1043,9 @@ export function createControls(deps: ControlsDeps): Controls {
   window.addEventListener(
     'wheel',
     (event) => {
+      // onCarousel() stays true under a full-screen screen — without this the wheel would flip through
+      // the strip behind the veil, while the screen scrolls its own pane.
+      if (overlays.isAnyOpen()) return;
       if (!onCarousel()) return;
       noteMouseActivity();
       const delta = event.deltaY !== 0 ? event.deltaY : event.deltaX;
@@ -683,7 +1062,7 @@ export function createControls(deps: ControlsDeps): Controls {
   // six primitives as the gamepad. Unlike the launcher, Tab is NOT bound to "back": on a public page it
   // has to keep doing what every keyboard user expects, and the focus sync above makes it agree with the
   // highlight.
-  const KEY_NAV: Readonly<Record<string, () => void>> = {
+  const KEY_NAV: Readonly<Record<string, (repeat: boolean) => void>> = {
     a: navLeft,
     arrowleft: navLeft,
     d: navRight,
@@ -697,12 +1076,45 @@ export function createControls(deps: ControlsDeps): Controls {
     backspace: navBack,
     escape: navBack,
   };
-  // Left/right are the exception to the edge model: holding them flips through the carousel, matching the
-  // gamepad's hold-to-repeat. The OS auto-repeat supplies the events (its own initial delay is close
-  // enough to the pad's), but its rate is far too fast for a carousel, so it is throttled to the same
-  // NAV_REPEAT_MS cadence. Every other key stays one action per press.
-  const REPEATABLE_KEYS = new Set(['a', 'arrowleft', 'd', 'arrowright']);
-  let lastKeyRepeatAt = 0;
+  // The four directions are the exception to the edge model: holding one flips through the carousel or
+  // runs through a popup stack, matching the gamepad's hold-to-repeat. The repeat is OURS, on a timer —
+  // the OS supplies its own, but at a rate and an initial delay that are the user's system settings, not
+  // ours, so the two input models would drift apart (and chaining one run into the next would be
+  // impossible: the OS restarts its full delay on every new key). Native repeats are dropped. Every other
+  // key stays one action per press.
+  const REPEATABLE_KEYS = new Set([
+    'a',
+    'arrowleft',
+    'd',
+    'arrowright',
+    'w',
+    'arrowup',
+    's',
+    'arrowdown',
+  ]);
+  // The key whose repeat is running, and its timer. Only one at a time: with two directions down the
+  // last one pressed owns the run, which is what a keyboard's own repeat does too.
+  let heldKey: string | null = null;
+  let keyRepeatTimer = 0;
+
+  function stopKeyRepeat(): void {
+    if (keyRepeatTimer !== 0) {
+      window.clearTimeout(keyRepeatTimer);
+      keyRepeatTimer = 0;
+    }
+    heldKey = null;
+  }
+
+  function scheduleKeyRepeat(key: string, handler: (repeat: boolean) => void, delay: number): void {
+    keyRepeatTimer = window.setTimeout(() => {
+      keyRepeatTimer = 0;
+      if (heldKey !== key) return;
+      autoRepeat.noteRepeat(performance.now());
+      noteNavActivity();
+      handler(true);
+      scheduleKeyRepeat(key, handler, NAV_REPEAT_MS);
+    }, delay);
+  }
 
   window.addEventListener('keydown', (event) => {
     const key = event.key.toLowerCase();
@@ -711,17 +1123,32 @@ export function createControls(deps: ControlsDeps): Controls {
     // Suppress the native default (arrow scroll, Space scroll, and the native click a focused button
     // would fire on Enter/Space — which would double-trigger alongside navActivate).
     event.preventDefault();
-    if (event.repeat) {
-      if (!REPEATABLE_KEYS.has(key)) return;
-      const now = performance.now();
-      if (now - lastKeyRepeatAt < NAV_REPEAT_MS) return;
-      lastKeyRepeatAt = now;
-    }
+    if (event.repeat) return; // the OS cadence is not ours — the timer below drives the run
     noteNavActivity();
-    handler();
+    handler(false);
+    if (!REPEATABLE_KEYS.has(key)) return;
+    stopKeyRepeat(); // a second direction takes the run over from the first
+    heldKey = key;
+    // A key taken up while the previous run is still warm continues it, delay skipped — same rule as the
+    // pad's (auto-repeat.ts), so swinging left→right glides on either device.
+    const now = performance.now();
+    scheduleKeyRepeat(key, handler, autoRepeat.continues(now) ? NAV_REPEAT_MS : HOLD_DELAY_MS);
+  });
+  // The keyboard's half of "the hold is over". A keyup can be missed (the window loses focus mid-hold and
+  // the release goes to whoever took it), which is what the watchdog in noteFlip covers — and the blur
+  // below, which also has to stop a timer nobody would otherwise turn off.
+  window.addEventListener('keyup', (event) => {
+    const key = event.key.toLowerCase();
+    if (heldKey === key) stopKeyRepeat();
+    if (REPEATABLE_KEYS.has(key)) endInput();
+  });
+  window.addEventListener('blur', () => {
+    if (heldKey === null) return;
+    stopKeyRepeat();
+    endInput();
   });
 
-  applyMenuLibrary();
+  applyMenuItems();
   applyFocus();
   armIdleTimer();
 
@@ -729,7 +1156,7 @@ export function createControls(deps: ControlsDeps): Controls {
     setCollection(state: ListState, entries: readonly CollectionEntry[]): void {
       collectionEntries = state === 'ready' ? entries : [];
       const previous = stackItems()[stackIndex];
-      applyMenuLibrary();
+      applyMenuItems();
       restoreFocus(previous, false);
       applyGithubHref();
       // The feed can land with the menu already open on a cold deep link — fill the panel that was empty.
@@ -741,24 +1168,79 @@ export function createControls(deps: ControlsDeps): Controls {
       // rather than letting a clamped index land on whichever button now occupies that slot.
       focusIndex = barFocusables().indexOf(moreButton);
       applyGithubHref();
-      applyMenuLibrary();
+      applyMenuItems();
       applyFocus();
     },
 
     onScreen(): void {
-      applyMenuLibrary();
+      applyMenuItems();
       applyFocus();
+    },
+
+    openAddGame(): void {
+      // The library steps aside first — data-overlay holds one value at a time — and main.ts is what
+      // brings it back when the Customize screen closes (see restoreOrigin there).
+      deps.library.close(true);
+      deps.gameSettings.openNew();
+      applyFocus();
+    },
+
+    confirmDiscard(onYes: () => void): void {
+      pendingConfirm = onYes;
+      openConfirm('discard', DISCARD_QUESTION);
+    },
+
+    confirmReset(onYes: () => void): void {
+      pendingConfirm = onYes;
+      openConfirm('reset', RESET_QUESTION);
+    },
+
+    openSystemCard(id: SystemCardId): void {
+      // A switch with an exhaustive default, not an if: a card added to SYSTEM_CARDS and forgotten here
+      // would otherwise fall through silently, and no type would have caught it.
+      switch (id) {
+        case 'library':
+          // The card's own `button` (main.ts) is this press's sound; the screen adds none of its own.
+          deps.library.open();
+          break;
+        case 'settings':
+          deps.settings.open();
+          break;
+        case 'power':
+          openPower();
+          break;
+        default: {
+          const exhaustive: never = id;
+          throw new Error(`unhandled site card ${String(exhaustive)}`);
+        }
+      }
+      applyFocus(); // the bar highlight clears while a screen is up
+    },
+
+    /**
+     * The screen closed itself (B / Close): put the highlight back on the More button it came from — on
+     * an entry screen. Opened from a card in the strip, the screen came from the CAROUSEL, where the bar
+     * is hidden and the row is the surface: there the highlight simply clears.
+     */
+    screenClosed(): void {
+      const items = barFocusables();
+      const more = items.indexOf(moreButton);
+      if (more !== -1) focusIndex = more;
+      focusRevealed = true;
+      applyFocus();
+      armIdleTimer(); // the countdown was suspended while the screen was up
     },
 
     onSession(): void {
       // The question outlives its answer if the session ends some other way — step back rather than
-      // leave a Yes that would now do nothing.
-      if (popupView === 'confirm' && !killVisible()) {
+      // leave a Yes that would now do nothing. Only the force-close question: the removal one is about
+      // the catalogue, which a session's phase has no say over.
+      if (popupView === 'confirm' && confirmMode === 'kill' && !killVisible()) {
         setView('details');
         focusStackBottom();
       }
       const previous = stackItems()[stackIndex];
-      applyMenuLibrary();
+      applyMenuItems();
       applyInfoPanel();
       restoreFocus(previous, false);
       applyFocus(); // Play comes and goes with the session — so does the no-play layout
