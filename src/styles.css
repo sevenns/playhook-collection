@@ -427,6 +427,13 @@ body {
   transition: opacity 0.2s ease 0.35s;
 }
 
+/* The startup fan needs longer: there the selected card fades in WITH the row rather than swapping in
+   opaque, so it only starts appearing at 0.35s and is not done until 0.75s — the rule above would leave
+   the focus body fully drawn under a half-transparent card for a third of a second. */
+#app[data-returning='intro'] #carousel-jelly {
+  transition: opacity 0.2s ease calc(var(--morph) + 0.4s);
+}
+
 /* The site's own card (Library): no cover, a solid d2 plate with the glyph punched out of it in d1 —
    the same inversion the focused rect-button uses. Selected, it grows to 136x204 from the base rule like
    any other card; its name appears in the bar's title line, not on it. */
@@ -583,13 +590,23 @@ body {
     opacity 0s linear 0.35s;
 }
 #app[data-screen='carousel'][data-card-morph='off'] .card.is-selected {
-  /* Opened from the landing page there is no button to take over from: the card is there from frame one,
-     and only its neighbours fan in behind it. */
+  /* Reached without a morph there is no button to take over from: the card is there from frame one, and
+     only its neighbours fan in behind it. */
   transition:
     width 0.35s cubic-bezier(0.4, 0, 0.2, 1),
     height 0.35s cubic-bezier(0.4, 0, 0.2, 1),
     margin 0.35s cubic-bezier(0.4, 0, 0.2, 1),
     opacity 0s linear;
+}
+/* The startup fan (carousel.playIntro): the same wave, except the selected card fades in WITH the row
+   instead of swapping in opaque. Both rules above exist to hand over from the play button — at startup
+   there is no button to hand over from, and a card snapping in mid-wave is what gives that away. */
+#app[data-screen='carousel'][data-returning='intro'] .card.is-selected {
+  transition:
+    width 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+    height 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+    margin 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.4s cubic-bezier(0.2, 0, 0.2, 1) 0.35s;
 }
 #app[data-screen='carousel'][data-card-morph='on'] .play-button {
   /* Stays visible (and keeps its cover) for exactly that grow, then is swapped out in one frame. */
@@ -2714,17 +2731,20 @@ html:not(.mouse-asleep) .osk-key:hover,
 
 /* ── BROWSER: reduced motion ───────────────────────────────────────────────
    The hero both pans (animation) and cross-fades (a 0.7s opacity transition). Killing only the animation
-   would leave the fade running, so both go. The Play button's ring is the other perpetual motion on the
-   page — an endlessly pulsing ring is precisely what this query exists for; the ring itself stays, only
-   its beat stops. (The selected card's focus body breathes on a canvas and cannot be reached from here;
-   it is the launcher's visual and stays.) */
+   would leave the fade running, so both go. The boot backdrop's slow push is the other long movement on
+   the page and goes with them — it still holds its beat, it simply holds it still. (The selected card's
+   focus body breathes on a canvas and cannot be reached from here; it is the launcher's visual and
+   stays.) */
 @media (prefers-reduced-motion: reduce) {
   .hero-layer {
     animation: none;
     transition: none;
   }
-  html:not(.mouse-asleep) .play-button:hover::after,
-  .play-button.is-focused::after {
-    animation: none;
+  /* The boot backdrop's push is the one thing here that moves on its own for seconds at a time. */
+  #hero-boot,
+  #hero-boot.is-panning {
+    transition: none;
+    --boot-zoom: 1;
+    --boot-shift: 0%;
   }
 }
