@@ -218,6 +218,46 @@ body {
    from JS on the incoming layer. Both layers run bg-pan perpetually; opacity 0/1 (toggled via
    .is-active) cross-fades between them. NOTE: opacity:0 does NOT pause the animation, so JS
    force-restarts bg-pan on the incoming layer to start its drift from zero. */
+/* ── The boot backdrop ─────────────────────────────────────────────────────
+   Ported from playhook @ c26fae7. The first two seconds belong to the background alone: the wallpaper
+   owns the screen while the catalogue and the first hero land underneath, so the page is never seen
+   assembling itself. The push is a TRANSITION, not an animation, and the layer is separate from the
+   hero on purpose — both follow from the same rule: nothing may travel BACKWARDS when boot ends. An
+   animation dropped mid-flight snaps to where its keyframes began; a shared layer would have to unwind
+   its zoom with the hero riding along. Here the backdrop simply dissolves over a hero that has been
+   sitting settled underneath it all along. */
+#hero-boot {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  transform: scale(var(--boot-zoom, 1)) translateX(var(--boot-shift, 0%));
+  transition: transform 7s cubic-bezier(0.3, 0, 0.6, 1);
+  will-change: transform, opacity;
+}
+
+/* main.ts adds this a frame after the wallpaper paints — the first frame has to show the resting
+   transform, or the transition has nothing to start from. The drift direction (--boot-pan) is
+   randomized there. The easing matters as much as the numbers: a linear start moves at full speed from
+   the very first frame, which reads as a lurch on an image that has only just appeared. */
+#hero-boot.is-panning {
+  --boot-zoom: 1.22;
+  --boot-shift: var(--boot-pan, 4.5%);
+}
+
+/* The handover. main.ts also writes an inline transform here — the CURRENT transform of the hero layer
+   below — so the backdrop converges on the image it is dissolving into instead of parting from it. That
+   matters most when the two are the SAME picture, where any offset would read as a double image sliding
+   apart. The two curves are deliberately opposites: opacity drops fastest at the START, while the
+   transform barely moves until the END — so the copy is at its most solid while it is still, and does
+   its travelling when there is almost nothing left to see. */
+#hero-boot.is-gone {
+  opacity: 0;
+  transition:
+    opacity 0.9s cubic-bezier(0, 0, 0.3, 1),
+    transform 1s cubic-bezier(0.7, 0, 1, 1);
+}
+
 .hero-layer {
   position: absolute;
   inset: 0;
@@ -387,6 +427,13 @@ body {
   transition: opacity 0.2s ease 0.35s;
 }
 
+/* The startup fan needs longer: there the selected card fades in WITH the row rather than swapping in
+   opaque, so it only starts appearing at 0.35s and is not done until 0.75s — the rule above would leave
+   the focus body fully drawn under a half-transparent card for a third of a second. */
+#app[data-returning='intro'] #carousel-jelly {
+  transition: opacity 0.2s ease calc(var(--morph) + 0.4s);
+}
+
 /* The site's own card (Library): no cover, a solid d2 plate with the glyph punched out of it in d1 —
    the same inversion the focused rect-button uses. Selected, it grows to 136x204 from the base rule like
    any other card; its name appears in the bar's title line, not on it. */
@@ -543,13 +590,23 @@ body {
     opacity 0s linear 0.35s;
 }
 #app[data-screen='carousel'][data-card-morph='off'] .card.is-selected {
-  /* Opened from the landing page there is no button to take over from: the card is there from frame one,
-     and only its neighbours fan in behind it. */
+  /* Reached without a morph there is no button to take over from: the card is there from frame one, and
+     only its neighbours fan in behind it. */
   transition:
     width 0.35s cubic-bezier(0.4, 0, 0.2, 1),
     height 0.35s cubic-bezier(0.4, 0, 0.2, 1),
     margin 0.35s cubic-bezier(0.4, 0, 0.2, 1),
     opacity 0s linear;
+}
+/* The startup fan (carousel.playIntro): the same wave, except the selected card fades in WITH the row
+   instead of swapping in opaque. Both rules above exist to hand over from the play button — at startup
+   there is no button to hand over from, and a card snapping in mid-wave is what gives that away. */
+#app[data-screen='carousel'][data-returning='intro'] .card.is-selected {
+  transition:
+    width 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+    height 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+    margin 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.4s cubic-bezier(0.2, 0, 0.2, 1) 0.35s;
 }
 #app[data-screen='carousel'][data-card-morph='on'] .play-button {
   /* Stays visible (and keeps its cover) for exactly that grow, then is swapped out in one frame. */
@@ -708,11 +765,6 @@ body {
 #app[data-screen='carousel'] .play-button > * {
   opacity: 0;
 }
-#app[data-screen='carousel'] .play-button::after {
-  opacity: 0;
-  animation: none;
-  transition: none;
-}
 #app[data-screen='carousel'] .play-button::before {
   opacity: 1;
 }
@@ -731,32 +783,8 @@ html:not(.mouse-asleep) .play-button:hover,
 
 /* The keyboard focus ring (gated on html.kbd-focus) is defined once, next to .rect-button/.text-button. */
 
-/* Pulse ring — a rounded square echoing the button (kept on hover/focus per design). */
-.play-button::after {
-  content: '';
-  position: absolute;
-  inset: calc(-7 * var(--px));
-  border: calc(3 * var(--px)) solid var(--d2);
-  border-radius: calc(17 * var(--px));
-  opacity: 0;
-  transition: opacity 0.2s ease;
-}
-
-html:not(.mouse-asleep) .play-button:hover::after,
-.play-button.is-focused::after {
-  opacity: 1;
-  animation: pulse-ring 1.1s ease-in-out infinite;
-}
-
-@keyframes pulse-ring {
-  0%,
-  100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.09);
-  }
-}
+/* No pulse ring. 0.8.0 dropped it: Play now says it is focused the way every other control does — the
+   d2 fill above — and nothing on the bar animates on its own any more. */
 
 .icon-play {
   width: calc(36 * var(--px));
@@ -2420,6 +2448,35 @@ html:not(.mouse-asleep) .settings-option:hover,
   text-underline-offset: calc(8 * var(--px));
 }
 
+/* ── Boot ──────────────────────────────────────────────────────────────────
+   Everything the page paints from data — the bar and the carousel strip — arrives at once, after the
+   catalogue and the background have landed, so the UI is never seen assembling itself or changing
+   colour under the reader's eyes. Ported from playhook @ c26fae7; the attribute ships in index.html and
+   main.ts removes it. Fading the CARDS rather than #carousel is the launcher's rule too — the
+   container's own transition belongs to the card morph. */
+
+#app[data-boot] #bottom-bar {
+  opacity: 0;
+  transform: translateY(calc(20 * var(--px)));
+}
+
+/* The cards wait, not the strip as a whole: they are built and laid out behind the boot screen, and
+   holding them at zero here is what leaves their staggered entrance still to play when the wallpaper
+   hands over. The focus body needs saying separately — it is a canvas beside the cards, not one of
+   them, so the rule above would leave it sitting on the boot wallpaper with no cover to belong to. */
+#app[data-boot] .card,
+#app[data-boot] #carousel-jelly {
+  opacity: 0;
+}
+
+/* …and none of it is pressable while it is invisible: opacity 0 hides a button, it does not disarm it,
+   so a click would land on something nobody could see. The cards need a rule of their own — their own
+   `pointer-events: auto` would otherwise undo the `none` inherited from #app. */
+#app[data-boot],
+#app[data-boot] .card {
+  pointer-events: none;
+}
+
 /* ── On-screen keyboard ─────────────────────────────────────────────────────
    Ported from playhook @ c26fae7. A surface of its own, not part of a screen: it opens on TOP of one.
    Hence z-index 2 — level with `.settings`, and above it by DOM order — while the popup's 3 still paints
@@ -2674,17 +2731,20 @@ html:not(.mouse-asleep) .osk-key:hover,
 
 /* ── BROWSER: reduced motion ───────────────────────────────────────────────
    The hero both pans (animation) and cross-fades (a 0.7s opacity transition). Killing only the animation
-   would leave the fade running, so both go. The Play button's ring is the other perpetual motion on the
-   page — an endlessly pulsing ring is precisely what this query exists for; the ring itself stays, only
-   its beat stops. (The selected card's focus body breathes on a canvas and cannot be reached from here;
-   it is the launcher's visual and stays.) */
+   would leave the fade running, so both go. The boot backdrop's slow push is the other long movement on
+   the page and goes with them — it still holds its beat, it simply holds it still. (The selected card's
+   focus body breathes on a canvas and cannot be reached from here; it is the launcher's visual and
+   stays.) */
 @media (prefers-reduced-motion: reduce) {
   .hero-layer {
     animation: none;
     transition: none;
   }
-  html:not(.mouse-asleep) .play-button:hover::after,
-  .play-button.is-focused::after {
-    animation: none;
+  /* The boot backdrop's push is the one thing here that moves on its own for seconds at a time. */
+  #hero-boot,
+  #hero-boot.is-panning {
+    transition: none;
+    --boot-zoom: 1;
+    --boot-shift: 0%;
   }
 }

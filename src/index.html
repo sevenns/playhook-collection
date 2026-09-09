@@ -30,7 +30,10 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <main id="app" data-route="home">
+    <!-- data-boot: the page opens on the background alone and reveals its UI once the catalogue and the
+         first background have landed. The attribute ships HERE rather than being added from JS, so there
+         is no frame of a fully-drawn UI before the script runs; main.ts removes it. -->
+    <main id="app" data-route="home" data-boot="loading">
       <!-- Hero background: two stacked layers behind all UI (z-index only on the container, see
            styles.css). JS writes the image + pan into the idle layer and cross-fades it in, GTA-5-style.
            #hero carries the screen zoom (fast, on entering an entry), #hero-pan the carousel parallax
@@ -40,6 +43,10 @@
           <div class="hero-layer"></div>
           <div class="hero-layer"></div>
         </div>
+        <!-- The boot backdrop: a layer of its own ABOVE the hero, holding the wallpaper while the page
+             assembles itself underneath. It dissolves rather than unwinding its push — a background
+             travelling backwards is the one jump the eye always catches. -->
+        <div id="hero-boot"></div>
       </div>
 
       <!-- The collection carousel (the `carousel` screen): a horizontal strip of covers sliding under a

@@ -87,6 +87,12 @@ export interface Carousel {
    * user comes back from the surface that card opened.
    */
   focusSystem(id: SystemCardId): void;
+  /**
+   * Replays the cards' staggered arrival. The boot screen holds them at zero (styles.css) while the row
+   * is built underneath it, so the fan still has to happen when the wallpaper hands over — otherwise the
+   * whole carousel simply appears, as if it had been display:none. The launcher's `playIntro`.
+   */
+  playIntro(): void;
   /** Activates the selected card (A / a click on it). */
   activate(): void;
   /** The current screen level. */
@@ -268,8 +274,7 @@ export function createCarousel(deps: CarouselDeps): Carousel {
     // screen is invisible (see the morph block in styles.css). A site card has none — and no entry screen
     // to morph into either.
     const entry = selectedEntry();
-    const cover =
-      detailArt !== undefined ? detailArt : entry === undefined ? null : coverOf(entry);
+    const cover = detailArt !== undefined ? detailArt : entry === undefined ? null : coverOf(entry);
     playButton.style.setProperty('--card-art', cover === null ? 'none' : `url("${cover}")`);
   }
 
@@ -426,13 +431,37 @@ export function createCarousel(deps: CarouselDeps): Carousel {
 
   return {
     focusEntry(slug: string): void {
-      const position = items.findIndex(
-        (item) => item.kind === 'game' && item.entry.slug === slug,
-      );
+      const position = items.findIndex((item) => item.kind === 'game' && item.entry.slug === slug);
       if (position === -1 || position === index) return;
       index = position;
       applyLayout();
       loadNearbyArt();
+    },
+
+    playIntro(): void {
+      if (screen !== 'carousel') return;
+      // Pull the cards back to zero and flush BEFORE arming the fan, rather than trusting them to still
+      // be hidden. By the time the boot screen hands over, the strip has been through setEntries and
+      // setScreen — either of which may already have run (and finished) a return of its own, leaving the
+      // row fully faded in. Starting the fan from that state is a no-op: an opacity that never changes
+      // has nothing to transition, which is exactly the "the carousel is just there" it was meant to fix.
+      // Suppressing the transition for that reset is not optional: the cards carry a DELAYED opacity
+      // transition, so a plain `opacity = 0` would animate its way there instead of taking effect now —
+      // leaving nothing to fade in from. The reflow makes the 0 the transition's start value.
+      for (const card of cards.values()) {
+        card.style.transition = 'none';
+        card.style.opacity = '0';
+      }
+      void strip.offsetWidth;
+      markReturning(true);
+      // Same fan, one difference: the selected card fades in with the rest. On a real hand-back it swaps
+      // in opaque because it takes over from a pixel-identical play button — at startup there is no
+      // button to take over from, and an opaque card appearing mid-wave is the one thing that breaks it.
+      app.dataset['returning'] = 'intro';
+      for (const card of cards.values()) {
+        card.style.removeProperty('transition');
+        card.style.removeProperty('opacity');
+      }
     },
 
     focusSystem(id: SystemCardId): void {

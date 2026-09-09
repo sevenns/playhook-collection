@@ -76,11 +76,18 @@ and why a public web page cannot.
   landing page that is dead hovers for the visitor who came with a mouse, so here one genuine `mousemove`
   is enough (synthetic ones — Chromium re-firing at the same coordinates when an element shifts under a
   still pointer — are still filtered).
-- **No boot screen, no startup jingle.** The launcher holds its wallpaper for two seconds, plays a jingle
-  and reveals the UI after both (deadline 5 s). On a web page that reads as "the page is hanging", and
-  the jingle would fall to the autoplay policy until the first gesture anyway. Declined, not deferred —
-  which is also why the site's music engine keeps its own gate rather than the launcher's `applyPlayback`
-  (that one exists to hold the music behind the jingle).
+- **The boot screen is ported; its jingle is a maybe.** The wallpaper owns the screen for two seconds on
+  its own drifting backdrop, the UI is revealed once the catalogue and the first background have landed
+  (deadline 5 s), the backdrop converges on the hero underneath it as it dissolves, and the cards fan in
+  afterwards so their entrance is actually seen. The launcher waits on three seeds — state, hero,
+  library — and the feed answers for two of them here.
+
+  The jingle is the one part a page cannot promise. **Audio may not play before the visitor has
+  interacted with the document**, and a cold load has no such gesture, so the call is normally refused
+  and the hold falls back to the page's own clock — which is precisely what the launcher does when its
+  own jingle cannot play (`jingleStartedAt ?? bootStart`). A RELOAD often does sound it: Chromium
+  remembers that an origin was allowed to make noise. Nothing waits on it either way, and the music gate
+  that holds the ambience behind it is the launcher's.
 - **Three of the launcher's four cards are here.** The row carries **Library**, **Settings** and
   **System**, in that order; only **Notifications** stays behind, because a showcase has nothing to
   notify about and an inbox that can only ever be empty is not worth a card. With the grid in place the
@@ -196,10 +203,22 @@ and why a public web page cannot.
   first — same question, same wording, same safe default (No, the bottom button). The launcher's error,
   busy and power views have nothing to describe here, and its confirm also carries an install-path note
   that a site which installs nothing does not need.
-- **The carousel lives OVER the landing page**, switched on by the Collection menu item (`#/collection`).
-  In the launcher it is the top-level screen with the bar screen below it; here the landing page is the
-  top level, so `data-screen` gains a third value that carries no attribute at all. It also means B on
-  the strip is a real step back — in the launcher it does nothing there (it sounds the dead end).
+- **The carousel IS the top level, as in the launcher.** The site used to open on a landing page with the
+  strip as a layer over it — one level more than the launcher has — and `#/` now shows the row itself.
+  `#/collection` still means the same thing, so old links keep working. B on the strip sounds the dead
+  end rather than uncovering a page underneath, which is the launcher's own behaviour.
+- **Up and down cross the screen boundary, as in the launcher.** Down on the strip opens the selected
+  entry (what A does); up on an entry screen comes back out to the row it was picked from. A site card is
+  not opened this way — it is a surface rather than an entry, and brushing the stick downwards mid-flip
+  is how you end up in a screen nobody asked for. Held presses are dropped on both, so pausing a flip on
+  a card never walks out of it a moment later.
+- **An entry screen opens on Play**, which is index 0 of the bar and where the launcher leaves it too —
+  Play is what an entry screen is for. The bar keeps NO focusables on the carousel (an empty list, not
+  `[More]`), so a trip through the strip leaves the index alone instead of clamping it; that is the
+  launcher's own guard, and without it the highlight quietly moved between entries.
+- **Play has no pulse ring.** It had one, echoing an earlier mockup; 0.8.0 dropped it, and Play now says
+  it is focused the way every other control does — the `--d2` fill — with nothing on the bar animating on
+  its own.
 - **One menu item is the door to the carousel, in and out — and it is called two things.** On an entry
   screen it is the launcher's own **Go back** (`launcher.menu.goBack`, the mouse counterpart of B). On
   the landing page the launcher has no such item — its strip IS the top level — so the site names the

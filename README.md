@@ -8,8 +8,8 @@ Two things live here:
 
 1. **The site** — [sevenns.github.io/playhook-collection](https://sevenns.github.io/playhook-collection/).
    It is [Playhook](https://github.com/sevenns/playhook)'s own UI, rebuilt as a static page: same hero,
-   same bar, same menu, same sounds, same gamepad. Its Collection view browses the catalogue as a
-   carousel of covers, and picking an entry previews it the way the launcher would — that entry's hero
+   same boot screen, same bar, same menu, same sounds, same gamepad. It opens straight onto the
+   catalogue as a carousel of covers, and picking an entry previews it the way the launcher would — that entry's hero
    images rotating, its own background music. The Library card at the end of the row opens the whole
    catalogue as a grid, and its "Add game" builds an entry from files on your own disk — that one lives
    in the tab, and a reload takes it away — that form is the launcher's Customize screen whole, with the

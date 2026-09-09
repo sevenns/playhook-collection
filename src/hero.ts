@@ -33,6 +33,12 @@ export interface HeroController {
    * during the hold is the one that gets shown.
    */
   setFlipping(flipping: boolean): void;
+  /**
+   * The transform the visible layer is wearing right now — what the boot backdrop converges on as it
+   * dissolves (see main.ts). Read off the computed style rather than tracked: the pan is a CSS
+   * transition, so only the layout knows where it has got to.
+   */
+  currentLayerTransform(): string;
 }
 
 export function createHeroController(): HeroController {
@@ -306,6 +312,8 @@ export function createHeroController(): HeroController {
   }
 
   return {
+    currentLayerTransform: (): string => getComputedStyle(activeLayer).transform,
+
     setWallpaper(url: string): void {
       wallpaperUrl = url;
       wallpaperPalette = undefined;
