@@ -23,6 +23,9 @@ export default tseslint.config(
       },
     },
     rules: {
+      // The launcher's "no non-null `!`" rule, enforced rather than left to discipline: tsc cannot
+      // express it and recommendedTypeChecked does not carry it.
+      '@typescript-eslint/no-non-null-assertion': 'error',
       '@typescript-eslint/no-floating-promises': 'error',
       '@typescript-eslint/no-misused-promises': 'error',
       '@typescript-eslint/strict-boolean-expressions': [

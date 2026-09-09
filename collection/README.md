@@ -45,10 +45,16 @@ Without a `preview` block the generator guesses one from the manifest (`heroImag
 contract: write the block if you care what the preview shows. A file named in `preview` that does not
 exist is a warning, not an error — the preview degrades, the build survives.
 
-Entries carry **no UI sounds**. The block left the card format in Playhook 0.7.0: the launcher always
-plays the sound set chosen in its Settings, and the site plays its own bundled set. A stale `sounds`
-block in a `game.json` still passes the schema — it is not strict — so the feed generator fails the
-build on one instead, because what is published here is a template other people copy.
+Entries carry **no UI sounds**. The block left the card format in Playhook 0.7.0, and 0.8.0 is no
+different: the launcher always plays the sound set chosen in its Settings, and the site plays the same
+default set (`playhook-abyss`). A stale `sounds` block in a `game.json` still passes the schema — it is
+not strict — so the feed generator fails the build on one instead, because what is published here is a
+template other people copy.
+
+Entries MAY carry the optional metadata 0.8.0 added to the manifest — `description` (`{ en, ru }`),
+`genres`, `releaseDate` (`YYYY`, `YYYY-MM` or `YYYY-MM-DD`) and `platforms` (`windows` / `mac` /
+`linux`). The launcher's "Find online" flow writes them; nothing reads them yet, there or here. The feed
+publishes them as they are when present.
 
 ## Rules
 
@@ -61,9 +67,14 @@ directory.
 Keep them web-sized. Everything under `assets/` is served from GitHub Pages and downloaded by anyone
 who opens the preview: prefer webp over jpg, and don't ship a lossless soundtrack.
 
-**At most three `heroImage` entries.** Playhook 0.7.0 caps them: the runtime keeps the first three and
-logs a warning, Configure refuses to save a fourth. The schema cannot express the cap, so the feed
-generator fails the build on it.
+**At most three `heroImage` entries.** Playhook 0.8.0 caps them: the runtime keeps the first three and
+logs a warning, the Customize screen refuses to save a fourth. The schema cannot express the cap, so the
+feed generator fails the build on it.
+
+**No `pc` block.** It arrived in 0.8.0 for a game installed on the PC itself (an absolute path to its
+executable) and the launcher refuses it on a card outright — a card must never name an absolute path.
+Every entry here is a card, so the generator fails the build on one. Use `executable`, `install` or
+`steam`, as before.
 
 **One `gridImage`, 600x900 webp, under 150 KB.** It is the carousel card's cover, portrait 2:3 to match
 the card itself; without it the carousel crops the first hero instead, so it is optional but worth
@@ -74,9 +85,10 @@ you.
 
 **Validate before you publish.** `../schema/game.schema.json` is the launcher's own schema, so a
 mismatch is a real error. But passing it is not enough: the rules that matter most (steam/install/
-executable exclusivity, path traversal, the `pcSavePath` prefix allowlist) cannot be expressed in JSON
-Schema and are dropped in the conversion. See [../schema/SOURCE.md](../schema/SOURCE.md). Open the
-manifest in Playhook's Configure window before calling it verified.
+executable/pc exclusivity, path traversal, the `pcSavePath` prefix allowlist) cannot be expressed in
+JSON Schema and are dropped in the conversion. See [../schema/SOURCE.md](../schema/SOURCE.md). Drop the
+entry on a card and insert it into Playhook 0.8.0 before calling it verified — a game the launcher
+refuses is reported on its Customize screen.
 
 ## The feed
 
@@ -101,7 +113,12 @@ Index entry shape:
   "manifestUrl": "bloodborne/game.json",
   "heroUrls": ["bloodborne/assets/hero-1.webp"],
   "gridUrl": "bloodborne/assets/grid.webp", // optional
-  "music": "bloodborne/assets/theme.ogg"  // optional
+  "music": "bloodborne/assets/theme.ogg",  // optional
+  // The manifest's own optional metadata (0.8.0), mirrored as-is when game.json has it:
+  "genres": ["Action", "RPG"],            // optional, non-empty
+  "releaseDate": "2015-03-24",            // optional
+  "platforms": ["windows"],               // optional, non-empty; windows | mac | linux
+  "description": { "en": "…", "ru": "…" } // optional, non-empty; both languages travel
 }
 ```
 
@@ -118,7 +135,8 @@ The generator is `scripts/collection-feed.mjs`, run from `scripts/build.mjs`. It
 slug outside `[a-z0-9-]+` — an entry that silently vanishes from the feed is diagnosed painfully. The
 whole `assets/` directory is copied, not just what `preview` names: that directory is also what a human
 drops on their card, and the manifest points at files the site never opens. It also enforces what the
-schema cannot: more than three `heroImage` entries, or a leftover `sounds` block, fail the build.
+schema cannot: more than three `heroImage` entries, a leftover `sounds` block, or a `pc` block, fail
+the build.
 
 What is deployed is `dist/`, assembled by `scripts/build.mjs` from `src/` and `public/`. This
 `collection/` directory is the **source** and does not reach GitHub Pages on its own.

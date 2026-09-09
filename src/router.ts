@@ -50,7 +50,7 @@ export interface Router {
   /** Sends the user to the catalogue with the carousel up. Where an unknown slug lands — and it REPLACES
    *  the current entry, because a dead link has no business sitting in the back stack. */
   showCollection(): void;
-  /** Back to the carousel FROM an entry (the Library menu item). A pushed hash, not a replaced one: the
+  /** Back to the carousel FROM an entry (the Go back menu item). A pushed hash, not a replaced one: the
    *  entry you are leaving is a real place, and the browser's Back button should return to it. */
   goCollection(): void;
   /** Leaves the game screen for home. Prefers the browser's own history when this session has already

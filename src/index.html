@@ -8,10 +8,14 @@
          palette/hero code only ever writes through the CSSOM (element.style.setProperty).
          `connect-src 'self'` is what lets the page fetch its own collection feed (api/v1/index.json):
          default-src 'none' covers connect-src too, and without this the fetch fails with nothing on
-         screen but an empty list — see collection.ts. -->
+         screen but an empty list — see collection.ts.
+         `blob:` on img-src and media-src is what a file the user picks in "Add game" becomes: the
+         browser mints a blob URL for it, and without these two the cover and the music of an entry made
+         on this page would be blocked. It admits nothing from the network — a blob URL can only name
+         something this document itself created. -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; img-src 'self'; media-src 'self'; style-src 'self'; font-src 'self'; script-src 'self'; connect-src 'self';"
+      content="default-src 'none'; img-src 'self' blob:; media-src 'self' blob:; style-src 'self'; font-src 'self'; script-src 'self'; connect-src 'self';"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Playhook - bring console vibes to your PC</title>
@@ -42,7 +46,11 @@
            fixed anchor, over the landing page. Cards are built from JS (carousel.ts); a cover is loaded
            only once its card comes near the selection. -->
       <div id="carousel" aria-hidden="true">
-        <div id="carousel-strip"></div>
+        <div id="carousel-strip">
+          <!-- The focus indicator: a soft body UNDER the covers, drawn on a canvas that rides inside the
+               strip, so it inherits the row's slide and its fades (focus-jelly.ts). -->
+          <canvas id="carousel-jelly" aria-hidden="true"></canvas>
+        </div>
       </div>
 
       <!-- Bottom bar, ported from the launcher: the two-line title+status block, More on the right, and
@@ -89,11 +97,91 @@
         </div>
       </footer>
 
+      <!-- Library: the whole catalogue as a grid of covers, opened by the Library card at the tail of the
+           strip. Structurally the launcher's screen (veil + column + sidebar), whose pane runs to the
+           RIGHT EDGE of the screen so the gap after the sidebar and the gap before the edge read as
+           equal. #library-empty sits OUTSIDE the scroller on purpose: screen-scroller measures the
+           pane's last child, and a hidden node at the tail would zero the bottom fade. -->
+      <section id="library" class="settings" aria-hidden="true">
+        <div class="settings-veil"></div>
+        <div class="settings-column">
+          <div class="settings-header">
+            <div class="settings-title">Library</div>
+          </div>
+          <div class="settings-body">
+            <div class="settings-nav" id="library-nav"></div>
+            <div class="library-pane">
+              <!-- The grid's focus body, the strip's twin. It sits OUTSIDE the scroller on purpose: a
+                   canvas as tall as a catalogue of hundreds would cost tens of megabytes, so this one is
+                   the size of the viewport and the scroll offset is folded into the coordinates. -->
+              <canvas id="library-jelly" class="is-hidden" aria-hidden="true"></canvas>
+              <div class="library-scroll" id="library-scroll">
+                <div class="library-grid" id="library-grid"></div>
+              </div>
+              <div class="library-empty" id="library-empty" aria-hidden="true"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Settings: the launcher's fourth surface, WHOLE — every section it has, in its order, with its
+           own labels. Only the Audio rows are live; the rest carry the launcher's out-of-the-box values
+           and are inert, because a web page has nothing to update, no card and no installer (see
+           settings-form-model.ts). Structurally the Library's twin, with an expanded-dropdown layer of
+           its own on top. -->
+      <section id="settings" class="settings" aria-hidden="true">
+        <div class="settings-veil"></div>
+        <div class="settings-column">
+          <div class="settings-header">
+            <div class="settings-title">Settings</div>
+            <!-- Where the launcher prints its own version: here it names the release this UI is a copy
+                 of, which is the same question the number answers there. -->
+            <div class="settings-version" id="settings-version"></div>
+          </div>
+          <!-- TWO columns: the screen's sections (and the actions that end it) on the left, the rows of
+               the selected section on the right — see screen-sidebar.ts. -->
+          <div class="settings-body">
+            <div class="settings-nav" id="settings-nav"></div>
+            <div class="settings-list" id="settings-list"></div>
+          </div>
+        </div>
+        <!-- The dropdown's frost lives OUTSIDE the fading container: its own opacity animation would
+             otherwise fade the blur along with everything else, which is the cost we are avoiding. -->
+        <div class="settings-options-blur"></div>
+        <!-- Expanded dropdown: a list of the focused select's options, on top of the screen. -->
+        <div class="settings-options" id="settings-options" aria-hidden="true">
+          <div class="settings-options-veil"></div>
+          <div class="settings-options-list" id="settings-options-list"></div>
+        </div>
+      </section>
+
+      <!-- Customize, in the one mode the site can offer: ADD. Structurally the Library's twin (the same
+           veil + column + sidebar skeleton), whose pane holds rows rather than covers. The launcher's
+           screen edits a game.json on a card; this one collects what a catalogue ENTRY is made of, and
+           what it makes lives in memory until the page is reloaded. -->
+      <section id="game-settings" class="settings" aria-hidden="true">
+        <div class="settings-veil"></div>
+        <div class="settings-column">
+          <div class="settings-header">
+            <div class="settings-title">Add game</div>
+          </div>
+          <div class="settings-body">
+            <div class="settings-nav" id="game-settings-nav"></div>
+            <div class="settings-list" id="game-settings-list"></div>
+          </div>
+          <!-- What stands between this draft and Save: it belongs to the SCREEN, not to any one section,
+               so it sits under both columns and stays readable wherever the focus is. -->
+          <div class="settings-status" id="game-settings-status"></div>
+        </div>
+      </section>
+
       <!-- Menu popup: ONE frosted veil + ONE right-side column (450px), same component as the launcher's,
            with one of its four views. Default focus is the BOTTOM button — see controls.ts.
            `inert` while closed: the column only fades out via opacity, so without it the buttons would
            stay in the tab order (the launcher never cared — it is a kiosk with no tab key). -->
       <section id="popup" class="popup" aria-hidden="true" data-view="details" inert>
+        <!-- Two layers, on purpose: the tint fades, the frost switches on in one frame (styles.css). -->
+        <div class="popup-blur"></div>
         <div class="popup-veil"></div>
         <div class="popup-column">
           <!-- Top content: the entry's play statistics, built from JS (stats.ts). Same shape as the
@@ -111,7 +199,29 @@
                Each is a vertical stack aligned to the right edge: a longer label grows to the LEFT,
                the right edge stays fixed. -->
           <div class="popup-actions">
+            <!-- ORDER MATTERS, and it is the launcher's: the items that APPEAR AND DISAPPEAR with the
+                 session (Force close, Remove from library) are at the TOP, and the ones that are always
+                 there sit in a fixed block just above Close. The stack is bottom-focused and
+                 bottom-anchored, so anything volatile near the bottom would shift the stable items
+                 under the user's thumb between visits. -->
             <div class="actions-group" data-group="details">
+              <!-- Force close: the only way out of a session. Shown while one is RUNNING and not
+                   already closing down — exactly the launcher's rule (see controls.ts). -->
+              <button id="menu-kill" class="text-button is-hidden" type="button">
+                Force close
+              </button>
+              <!-- Remove from library: drops the entry the bar is describing from the catalogue — the
+                   same catalogue the Library screen shows, which is what lets the launcher's own wording
+                   be honest here. In the launcher it deletes a record kept on disk; here the catalogue is
+                   a fetched feed, so the removal lasts until a reload (see controls.ts / PORTED-FROM.md). -->
+              <button id="menu-forget" class="text-button is-hidden" type="button">
+                Remove from library
+              </button>
+              <!-- The door to the carousel, in and out. On an entry screen it is the launcher's own
+                   "Go back" — the mouse counterpart of the B button; on the landing page, where the
+                   launcher has no such item, it reads "Collection" and opens the strip. The text is
+                   written per route from controls.ts. Hidden only where there is no carousel to show. -->
+              <button id="menu-home" class="text-button" type="button">Collection</button>
               <!-- Github: a real link, in the SAME tab. Gamepad polling is not a user activation, so a
                    scripted click on target="_blank" would be blocked as a popup — one code path for
                    mouse, keyboard and pad is worth more than a new tab. href is set per route from
@@ -119,20 +229,34 @@
               <a id="menu-github" class="text-button" href="https://github.com/sevenns/playhook"
                 >Github</a
               >
-              <!-- Library: the one way into the carousel and the one way back to it. On the landing page
-                   it opens the strip, on an entry screen it returns to it — the mouse counterpart of the
-                   B button. Hidden only where there is no carousel to show (see controls.ts). -->
-              <button id="menu-library" class="text-button" type="button">Library</button>
-              <!-- Force close: the only way out of a session. Shown while one is RUNNING and not
-                   already closing down — exactly the launcher's rule (see controls.ts). -->
-              <button id="menu-kill" class="text-button is-hidden" type="button">Force close</button>
-              <!-- Remove from history: drops the entry the bar is describing from the catalogue. In the
-                   launcher it deletes a record kept on disk; here the catalogue is a fetched feed, so the
-                   removal lasts until a reload (see controls.ts / PORTED-FROM.md). -->
-              <button id="menu-forget" class="text-button is-hidden" type="button">
-                Remove from history
-              </button>
               <button id="menu-close" class="text-button" type="button">Close</button>
+            </div>
+
+            <!-- System, opened by the last card of the strip. The launcher's own power stack, in its
+                 order and with its wording — and every item of it inert here: a web page cannot shut a
+                 machine down, reboot it, put it to sleep, or minimise and quit an application that is a
+                 tab. What is live is the pair at the foot: Github, which is the site's own item and the
+                 nearest thing a showcase has to "the thing itself", and Close. -->
+            <div class="actions-group" data-group="power">
+              <button id="power-shutdown" class="text-button is-disabled" type="button">
+                Shutdown
+              </button>
+              <button id="power-reboot" class="text-button is-disabled" type="button">
+                Reboot
+              </button>
+              <button id="power-sleep" class="text-button is-disabled" type="button">Sleep</button>
+              <button id="power-minimize" class="text-button is-disabled" type="button">
+                Minimize Playhook
+              </button>
+              <button id="power-quit" class="text-button is-disabled" type="button">
+                Close Playhook
+              </button>
+              <!-- A real link in the SAME tab, exactly like the menu's own Github: gamepad polling is not
+                   a user activation, so a scripted click on target="_blank" would be blocked as a popup. -->
+              <a id="power-github" class="text-button" href="https://github.com/sevenns/playhook"
+                >Github</a
+              >
+              <button id="power-close" class="text-button" type="button">Close</button>
             </div>
 
             <!-- confirm: Yes/No for the force close and for removing an entry. Default focus is the
@@ -144,6 +268,31 @@
           </div>
         </div>
       </section>
+
+      <!-- On-screen keyboard. The launcher has no <input> anywhere and its CSS forbids a caret, so this
+           is the only way to type there; here it is the GAMEPAD's way to type — a pad has no keys, and
+           the site answers a pad everywhere else. A physical keyboard writes straight through it.
+
+           It sits OUTSIDE every screen: it opens ON TOP of one, and a keyboard living inside a screen
+           would be extinguished with it (the overlay rules key off data-overlay). Its own z-index puts
+           it level with the screens and under the popup. -->
+      <div class="osk" id="osk" aria-hidden="true">
+        <div class="osk-veil"></div>
+        <div class="osk-panel">
+          <div class="osk-title" id="osk-title"></div>
+          <!-- The value is drawn in TWO halves with the caret between them, so the caret can sit
+               anywhere in the text and a click can be resolved against the half it landed in. The
+               halves live inside one inline wrapper so a long value still wraps as one paragraph. -->
+          <div class="osk-field" id="osk-field">
+            <span class="osk-line"
+              ><span id="osk-value"></span><span class="osk-caret" id="osk-caret"></span
+              ><span id="osk-value-after"></span
+            ></span>
+          </div>
+          <div class="osk-keys" id="osk-keys"></div>
+          <div class="osk-legend" id="osk-legend"></div>
+        </div>
+      </div>
     </main>
     <script type="module" src="./app.js"></script>
   </body>

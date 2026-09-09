@@ -3,13 +3,18 @@
 //
 // Output:
 //   dist/api/v1/index.json          the whole catalogue, one entry per game, sorted by title
-//   dist/api/v1/<slug>.json         one entry (the contract the launcher's Configure window targets)
+//   dist/api/v1/<slug>.json         one entry, the same shape as its index row
 //   dist/api/v1/<slug>/game.json    the manifest itself
 //   dist/api/v1/<slug>/assets/**    everything the entry ships (hero images, the cover, music)
 //
 // The site reads ONLY index.json — it carries the full preview payload per entry, so opening the list
-// is one request. The per-slug files exist for the launcher, and are generated here so the two never
-// drift apart.
+// is one request. The per-slug files are the feed's per-entry contract for whoever consumes it next
+// (Playhook 0.8.0 does not: it takes metadata straight from the stores), and are generated here so the
+// two shapes never drift apart.
+//
+// An entry also carries the manifest's own optional metadata — `genres`, `releaseDate`, `platforms`,
+// `description` (both languages, the feed mirrors the manifest) — when the game.json has it. The site
+// shows none of it yet; publishing it now is what keeps this generator from being touched twice.
 //
 // Failure policy is deliberately split: a malformed ENTRY (bad slug, invalid manifest) FAILS the build,
 // because an entry that silently drops out of the feed is diagnosed painfully; a missing PREVIEW asset
@@ -21,8 +26,9 @@ import Ajv2020 from 'ajv/dist/2020.js';
 const SLUG_RE = /^[a-z0-9-]+$/;
 
 /**
- * Playhook's own cap on hero backgrounds (MAX_HERO_IMAGES in the launcher's shared/types.ts). The zod
- * schema carries no `.max`, so it never reaches schema/game.schema.json — see schema/SOURCE.md.
+ * Playhook's own cap on hero backgrounds (MAX_HERO_IMAGES in the launcher's shared/types.ts — unchanged
+ * in 0.8.0). The zod schema carries no `.max`, so it never reaches schema/game.schema.json — see
+ * schema/SOURCE.md.
  */
 const MAX_HERO_IMAGES = 3;
 
@@ -137,7 +143,37 @@ function gateManifest(manifest, slug) {
         `${where}: "sounds" was removed from the card format in 0.7.0 — UI sounds now come from the set chosen in Settings. Drop the block (backgroundMusic stays)`,
       );
     }
+
+    if (game.pc !== undefined) {
+      throw new Error(
+        `${where}: "pc" describes a game installed on the PC itself and is refused on a card (Playhook 0.8.0, manifest.pcOnCard). Every entry here is a card — drop the block`,
+      );
+    }
   }
+}
+
+/**
+ * The manifest's own optional metadata, published as it is. Only fields that are present AND non-empty
+ * travel: an empty list or an empty object says nothing, and an absent key is easier to consume than an
+ * empty one. Takes ONE game — a multi-game card is described by its first, like its preview.
+ */
+function metadataOf(game) {
+  const metadata = {};
+  if (Array.isArray(game.genres) && game.genres.length > 0) metadata.genres = game.genres;
+  if (typeof game.releaseDate === 'string' && game.releaseDate.length > 0) {
+    metadata.releaseDate = game.releaseDate;
+  }
+  if (Array.isArray(game.platforms) && game.platforms.length > 0) {
+    metadata.platforms = game.platforms;
+  }
+  if (
+    typeof game.description === 'object' &&
+    game.description !== null &&
+    Object.keys(game.description).length > 0
+  ) {
+    metadata.description = game.description;
+  }
+  return metadata;
 }
 
 /**
@@ -237,6 +273,7 @@ export async function buildCollectionFeed(root, dist) {
     if (preview.grid !== null) entry.gridUrl = posix.join(slug, preview.grid);
     if (typeof meta.steamAppId === 'number') entry.steamAppId = meta.steamAppId;
     if (preview.music !== null) entry.music = posix.join(slug, preview.music);
+    Object.assign(entry, metadataOf(gamesOf(manifest)[0]));
 
     entries.push(entry);
   }

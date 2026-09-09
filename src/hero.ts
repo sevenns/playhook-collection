@@ -1,11 +1,14 @@
-// Hero background subsystem, ported from playhook @ c348f4246752286b594c8a8eddd2253ea88b0f12 :
-// src/renderer/hero.ts. The launcher's HeroDeps seam (a game-state reader and a translator) is gone —
-// here the caller simply says which entry is on screen — but everything that made the launcher's heroes
-// feel alive is back: the per-entry image rotation, the positional palette cache, and the wallpaper
-// fallback.
+// Hero background subsystem, ported from playhook @ c26fae7 (release/v0.8.0) : src/renderer/hero.ts.
+// The launcher's HeroDeps seam (a game-state reader and a translator) is gone — here the caller simply
+// says which entry is on screen — but everything that made the launcher's heroes feel alive is back: the
+// per-entry image rotation, the positional palette cache, and the wallpaper fallback.
 //
 // What is kept 1:1: the two cross-fading layers with a randomized pan direction and the forced animation
-// restart, and the two-color palette applied inline on #app.
+// restart, the two-color palette applied inline on #app, and the SWAP SCHEDULER — a request stands for
+// SETTLE_MS before it is painted, never lands on a layer that is still fading, and waits out a held
+// direction altogether (setFlipping). What is merged rather than copied: the launcher's images are data
+// URLs and can be painted the moment they are asked for; here they arrive over the network, so every one
+// is preloaded first and only THEN handed to the scheduler.
 import { computePalette, type Palette } from './dominant-color.js';
 import { preload } from './preload.js';
 import { req } from './dom.js';
@@ -23,6 +26,13 @@ export interface HeroController {
   showGame(slug: string, urls: readonly string[]): void;
   /** Parallax offset in DESIGN px: the background drifts with the carousel (see #hero-pan in styles.css). */
   setParallax(designPx: number): void;
+  /**
+   * Whether a direction is being HELD, i.e. the strip is flipping on its own. While it is, the image on
+   * screen stays exactly where it is — whatever heroes arrive meanwhile are remembered, not painted —
+   * and the last one lands as soon as the key/stick is let go. Interruptible: the request that arrives
+   * during the hold is the one that gets shown.
+   */
+  setFlipping(flipping: boolean): void;
 }
 
 export function createHeroController(): HeroController {
@@ -94,10 +104,93 @@ export function createHeroController(): HeroController {
   // cross-fade / pan re-randomize when the image hasn't actually changed.
   let shownUrl: string | null = null;
 
-  // Cross-fades to a new image on the idle layer, then swaps roles. No-op when the url is unchanged
-  // (keeps the running pan going).
-  function showImage(url: string): void {
-    if (url === shownUrl) return;
+  /** Matches the .hero-layer opacity transition in styles.css — how long a cross-fade owns both layers. */
+  const CROSSFADE_MS = 700;
+  /**
+   * How long the requested image must stand before it is painted. Deliberately longer than the nav
+   * repeat (NAV_REPEAT_MS in auto-repeat.ts), so a HELD left/right never paints a background at all: the
+   * strip flips, and the hero lands once, on wherever the user stopped.
+   */
+  const SETTLE_MS = 120;
+
+  // What the page WANTS on screen, versus what is on it (shownUrl). They differ while a swap waits — see
+  // requestImage. The palette travels with the image rather than being applied at request time: the
+  // colors and the picture must never disagree, which is what a straight apply would do while flipping.
+  let desiredUrl: string | null = null;
+  let desiredPaint: (() => void) | null = null;
+  let swapTimer: number | null = null;
+  let lastSwapAt = Number.NEGATIVE_INFINITY;
+  // A direction is being held (main.ts relays it). SETTLE_MS alone almost covers this — the repeat is
+  // faster than it — but "almost" is not a rule. The held state says it outright: no swap at all until
+  // the flip stops.
+  let flipping = false;
+
+  /**
+   * Asks for an image (and the palette that goes with it). The swap is deferred twice over: until the
+   * request has stood still for SETTLE_MS, and until the previous cross-fade has finished. Painting into
+   * a layer that is still fading is what made a fast card change snap — the incoming layer is visible by
+   * then, so swapping its background-image replaces the picture instantly, with no fade at all.
+   * The url is expected to be loaded already (see showFirstUsable / the rotation): this schedules the
+   * fade, it does not wait for the network.
+   */
+  function requestImage(url: string, paintPalette: () => void): void {
+    if (url === desiredUrl) {
+      // The same image asked for again (a repeated route, the feed landing twice). No cross-fade — but
+      // the palette may still need re-applying, unless the swap to it hasn't happened yet, where it is
+      // the swap's job.
+      if (shownUrl === desiredUrl) paintPalette();
+      else desiredPaint = paintPalette;
+      return;
+    }
+    desiredUrl = url;
+    desiredPaint = paintPalette;
+    // The session's FIRST image has nothing to cross-fade with and nobody waiting to see it settle.
+    if (shownUrl === null && swapTimer === null && !flipping) runSwap();
+    else armSwap();
+  }
+
+  function armSwap(): void {
+    if (swapTimer !== null) {
+      window.clearTimeout(swapTimer);
+      swapTimer = null;
+    }
+    // Held: the swap is re-armed by setFlipping when the direction is released, with whatever the last
+    // request turned out to be.
+    if (flipping) return;
+    const waitForFade = lastSwapAt + CROSSFADE_MS - performance.now();
+    swapTimer = window.setTimeout(runSwap, Math.max(SETTLE_MS, waitForFade));
+  }
+
+  function setFlipping(next: boolean): void {
+    if (flipping === next) return;
+    flipping = next;
+    if (flipping) {
+      if (swapTimer !== null) {
+        window.clearTimeout(swapTimer);
+        swapTimer = null;
+      }
+      return;
+    }
+    if (desiredUrl !== shownUrl) armSwap();
+  }
+
+  function runSwap(): void {
+    if (swapTimer !== null) {
+      window.clearTimeout(swapTimer);
+      swapTimer = null;
+    }
+    const paint = desiredPaint;
+    desiredPaint = null;
+    if (desiredUrl !== null && desiredUrl !== shownUrl) {
+      lastSwapAt = performance.now();
+      swapLayers(desiredUrl);
+    }
+    paint?.();
+  }
+
+  // Cross-fades to a new image on the idle layer, then swaps roles. Only ever called from runSwap, which
+  // owns the timing.
+  function swapLayers(url: string): void {
     shownUrl = url;
     // The incoming (idle) layer gets the new image + a fresh random pan direction (drift left vs right).
     idleLayer.style.backgroundImage = `url("${url}")`;
@@ -154,6 +247,12 @@ export function createHeroController(): HeroController {
     );
   }
 
+  /** A loaded hero of the entry on screen: schedule its fade, with its own palette riding along. */
+  function showHero(slug: string, index: number, url: string): void {
+    heroIndex = index;
+    requestImage(url, () => updatePaletteFor(url, `${slug}#${index}`));
+  }
+
   // Idempotent: an already-running eligible rotation is left alone, so repeated calls can't starve it by
   // resetting the interval and the image would never actually change.
   function startRotation(): void {
@@ -173,9 +272,7 @@ export function createHeroController(): HeroController {
         () => {
           // The entry may have changed while this was in flight.
           if (currentSlug !== slug) return;
-          heroIndex = index;
-          showImage(url);
-          updatePaletteFor(url, `${slug}#${index}`);
+          showHero(slug, index, url);
         },
         // A broken URL mid-rotation: keep whatever is on screen and try the next one next minute.
         () => undefined,
@@ -187,8 +284,7 @@ export function createHeroController(): HeroController {
 
   function applyWallpaper(): void {
     if (wallpaperUrl === null) return;
-    showImage(wallpaperUrl);
-    applyWallpaperPalette();
+    requestImage(wallpaperUrl, applyWallpaperPalette);
   }
 
   // Paints the first hero that actually loads. Walking the list rather than trusting heroUrls[0] is the
@@ -202,9 +298,7 @@ export function createHeroController(): HeroController {
         continue;
       }
       if (currentSlug !== slug) return;
-      heroIndex = index;
-      showImage(url);
-      updatePaletteFor(url, `${slug}#${index}`);
+      showHero(slug, index, url);
       startRotation();
       return;
     }
@@ -215,9 +309,10 @@ export function createHeroController(): HeroController {
     setWallpaper(url: string): void {
       wallpaperUrl = url;
       wallpaperPalette = undefined;
-      // Nothing on screen yet: paint it. This is also what covers a cold deep link to a game — the
-      // wallpaper fills the wait, then cross-fades into the entry's own hero when that arrives.
-      if (shownUrl === null) applyWallpaper();
+      // Nothing on screen yet — and nothing asked for: paint it. This is also what covers a cold deep
+      // link to a game — the wallpaper fills the wait, then cross-fades into the entry's own hero when
+      // that arrives. A hero that got there first (or is already scheduled) is left alone.
+      if (shownUrl === null && desiredUrl === null) applyWallpaper();
     },
 
     showWallpaper(): void {
@@ -254,5 +349,7 @@ export function createHeroController(): HeroController {
       // animation, and one element can only transition its transform at one speed — see styles.css.
       heroPanEl.style.setProperty('--hero-parallax', `calc(${designPx} * var(--px))`);
     },
+
+    setFlipping,
   };
 }
