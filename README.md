@@ -16,7 +16,8 @@ Two things live here:
    rows a web page cannot answer shown and inert. The Settings card beside it opens the launcher's Settings
    screen whole — every section it has, as a freshly installed Playhook shows it. Audio is the part this
    page can act on and is live there: all eighteen of the launcher's navigation sound sets and all eleven
-   of its ambience tracks, kept in the browser and outliving a reload. The rest is shown to be read.
+   of its ambience tracks, kept in the browser and outliving a reload. The rest is shown to be read. The System card at the end of the row carries the launcher's
+   power stack, inert, with a Github link added above its Close.
 2. **The collection** — ready-made `game.json` manifests per game (hero images, the carousel cover, save
    paths, titles), so you don't have to write one from scratch. See
    [collection/README.md](collection/README.md).

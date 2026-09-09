@@ -1210,8 +1210,17 @@ html.kbd-focus .play-button:focus-visible {
   min-height: 0;
 }
 #popup[data-view='details'] .actions-group[data-group='details'],
+#popup[data-view='power'] .actions-group[data-group='power'],
 #popup[data-view='confirm'] .actions-group[data-group='confirm'] {
   display: flex;
+}
+
+/* A stack item that is here to be READ rather than pressed — the System stack's power actions, which a
+   web page has no machine to perform them on. Same treatment as an inert form row and an inert column
+   entry: shown at the launcher's own dimmed opacity, and it still takes the focus so it can be read. */
+.text-button.is-disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 /* Menu items that come and go with the screen and the session (Force close, Remove from library, and

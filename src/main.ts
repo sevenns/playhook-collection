@@ -69,8 +69,12 @@ let titleHeld = false;
 /** Pending "the run is really over" (see FLIP_SETTLE_MS); 0 when the strip is at rest or flipping. */
 let flipSettleTimer = 0;
 
-/** The name the strip is standing on — written at once, or held until the flip settles (see above). */
-function setBrowseTitle(title: string): void {
+/**
+ * The name the strip is standing on — written at once, or held until the flip settles (see above). Null
+ * clears the bar: the System card has no caption at all, which is the launcher's own mockup (its
+ * `titleKey` is null there).
+ */
+function setBrowseTitle(title: string | null): void {
   if (stripFlipping) {
     titleHeld = true;
     return;

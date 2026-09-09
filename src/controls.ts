@@ -40,7 +40,7 @@ const REPO_URL = 'https://github.com/sevenns/playhook';
 const ENTRY_URL_PREFIX = 'https://github.com/sevenns/playhook-collection/tree/main/';
 
 /** Which view the popup is showing; 'none' means it is closed. */
-type PopupView = 'none' | 'details' | 'confirm';
+type PopupView = 'none' | 'details' | 'power' | 'confirm';
 
 /** Which action the confirm view is asking about (only meaningful while popupView === 'confirm'). */
 type ConfirmMode = 'kill' | 'forget' | 'discard' | 'reset';
@@ -72,6 +72,11 @@ interface StackItem {
   readonly visual: HTMLElement;
   /** Where DOM focus goes. */
   readonly focusTarget: HTMLElement;
+  /**
+   * Shown to be read, never pressed — the System stack's power actions. It still takes the focus (the
+   * same rule the inert form rows follow), and answers A with the dead-end sound.
+   */
+  readonly inert?: boolean;
 }
 
 export interface ControlsDeps {
@@ -190,6 +195,8 @@ export function createControls(deps: ControlsDeps): Controls {
   const menuKill = req<HTMLButtonElement>('menu-kill');
   const menuForget = req<HTMLButtonElement>('menu-forget');
   const menuClose = req<HTMLButtonElement>('menu-close');
+  const powerGithub = req<HTMLAnchorElement>('power-github');
+  const powerClose = req<HTMLButtonElement>('power-close');
   const confirmYes = req<HTMLButtonElement>('confirm-yes');
   const confirmNo = req<HTMLButtonElement>('confirm-no');
 
@@ -200,6 +207,28 @@ export function createControls(deps: ControlsDeps): Controls {
   const killItem: StackItem = { kind: 'button', visual: menuKill, focusTarget: menuKill };
   const forgetItem: StackItem = { kind: 'button', visual: menuForget, focusTarget: menuForget };
   const closeItem: StackItem = { kind: 'button', visual: menuClose, focusTarget: menuClose };
+  // The System stack. Its five power actions are inert: a page cannot shut a machine down, reboot it,
+  // put it to sleep, or minimise and quit an application that is a browser tab.
+  const powerItems: readonly StackItem[] = [
+    'power-shutdown',
+    'power-reboot',
+    'power-sleep',
+    'power-minimize',
+    'power-quit',
+  ].map((id) => {
+    const el = req(id);
+    return { kind: 'button', visual: el, focusTarget: el, inert: true } as const;
+  });
+  const powerGithubItem: StackItem = {
+    kind: 'button',
+    visual: powerGithub,
+    focusTarget: powerGithub,
+  };
+  const powerCloseItem: StackItem = {
+    kind: 'button',
+    visual: powerClose,
+    focusTarget: powerClose,
+  };
   const yesItem: StackItem = { kind: 'button', visual: confirmYes, focusTarget: confirmYes };
   const noItem: StackItem = { kind: 'button', visual: confirmNo, focusTarget: confirmNo };
 
@@ -209,6 +238,9 @@ export function createControls(deps: ControlsDeps): Controls {
     homeItem,
     githubItem,
     closeItem,
+    ...powerItems,
+    powerGithubItem,
+    powerCloseItem,
     yesItem,
     noItem,
   ];
@@ -340,6 +372,9 @@ export function createControls(deps: ControlsDeps): Controls {
 
   function stackItems(): readonly StackItem[] {
     if (popupView === 'confirm') return [yesItem, noItem];
+    // The launcher's own order, with one item added: Github sits just above Close, where the site's
+    // other stack keeps it too.
+    if (popupView === 'power') return [...powerItems, powerGithubItem, powerCloseItem];
     if (popupView !== 'details') return [];
     // MUST match the DOM order in index.html — this list IS the up/down order, and a mismatch would move
     // the highlight somewhere other than where the eye follows. Volatile items first, then the fixed
@@ -453,9 +488,24 @@ export function createControls(deps: ControlsDeps): Controls {
   // ── Popup ────────────────────────────────────────────────────────────────────
 
   /** Switching views keeps .is-open, so the shared veil never cross-fades — only the content changes. */
-  function setView(view: 'details' | 'confirm'): void {
+  function setView(view: 'details' | 'power' | 'confirm'): void {
     popupView = view;
     popup.dataset['view'] = view;
+  }
+
+  /**
+   * The System stack, opened straight from the last card of the strip. There is no menu underneath it —
+   * the level above it is the carousel — so B and the veil close the popup outright rather than stepping
+   * back into Details, which is exactly what the launcher does for a card-opened view (`popupRoot`).
+   */
+  function openPower(): void {
+    audio.play('popup-open'); // the card's own `button` (main.ts) is the press; this is the panel
+    popup.classList.add('is-open');
+    popup.setAttribute('aria-hidden', 'false');
+    popup.removeAttribute('inert');
+    setView('power');
+    focusStackBottom(); // default focus: Close, the bottom item and the safe way out
+    applyFocus(); // the bar highlight clears while the popup is open
   }
 
   function openDetails(): void {
@@ -534,7 +584,9 @@ export function createControls(deps: ControlsDeps): Controls {
       focusStackBottom();
       return;
     }
-    if (popupView === 'details') {
+    if (popupView === 'details' || popupView === 'power') {
+      // The System stack is opened straight from a card, so there is no menu underneath it to step back
+      // into — the level above it is the carousel itself, exactly as in the launcher.
       closePopup(); // its own popup-close is the sound of this step
       return;
     }
@@ -653,10 +705,14 @@ export function createControls(deps: ControlsDeps): Controls {
   }
 
   function triggerStackItem(item: StackItem): void {
-    if (item === githubItem) {
+    if (item.inert === true) {
+      audio.playLimit(); // shown to be read — see StackItem.inert
+      return;
+    }
+    if (item === githubItem || item === powerGithubItem) {
       // A real click on the anchor, so mouse, keyboard and gamepad all take the same path (and the
       // click listener below plays the sound exactly once).
-      menuGithub.click();
+      item.visual.click();
       return;
     }
     if (item === homeItem) {
@@ -777,8 +833,9 @@ export function createControls(deps: ControlsDeps): Controls {
   // The static stack controls. Github is an <a>: its click listener only plays the sound and lets the
   // navigation happen, so the scripted .click() above needs no second code path.
   menuGithub.addEventListener('click', () => audio.play('button'));
+  powerGithub.addEventListener('click', () => audio.play('button'));
   for (const item of ALL_STATIC_ITEMS) {
-    if (item !== githubItem) {
+    if (item !== githubItem && item !== powerGithubItem) {
       item.visual.addEventListener('click', () => {
         pressFlash(item.visual);
         triggerStackItem(item);
@@ -1148,6 +1205,9 @@ export function createControls(deps: ControlsDeps): Controls {
           break;
         case 'settings':
           deps.settings.open();
+          break;
+        case 'power':
+          openPower();
           break;
         default: {
           const exhaustive: never = id;

@@ -81,10 +81,26 @@ and why a public web page cannot.
   the jingle would fall to the autoplay policy until the first gesture anyway. Declined, not deferred —
   which is also why the site's music engine keeps its own gate rather than the launcher's `applyPlayback`
   (that one exists to hold the music behind the jingle).
-- **Two of the launcher's four cards are here.** Nothing on a showcase can notify and there is no machine
-  to power down, so Notifications and System stay behind; the row carries **Library** and **Settings**.
-  With that grid in place the strip's cap of nine (`MAX_STRIP_GAMES`) is applied as the launcher applies
-  it: everything past the ninth entry is reached through the Library, which holds every one of them.
+- **Three of the launcher's four cards are here.** The row carries **Library**, **Settings** and
+  **System**, in that order; only **Notifications** stays behind, because a showcase has nothing to
+  notify about and an inbox that can only ever be empty is not worth a card. With the grid in place the
+  strip's cap of nine (`MAX_STRIP_GAMES`) is applied as the launcher applies it: everything past the
+  ninth entry is reached through the Library, which holds every one of them.
+- **The System card shows no caption**, exactly as the launcher's mockup has it (`titleKey: null` there,
+  `title: null` here) — the bar keeps the landing copy while the row stands on it.
+- **Its stack is the launcher's, and every power action in it is inert.** Shutdown, Reboot, Sleep,
+  Minimize Playhook, Close Playhook — the launcher's own five, in its order and with its wording, shown
+  at the same dimmed opacity the inert form rows use. A web page cannot turn a machine off, restart it,
+  put it to sleep, or minimise and quit an application that is a browser tab. They still take the focus,
+  so they can be read, and answer A with the dead-end sound.
+- **One item in that stack is the site's own: Github**, just above Close — the same place the menu's own
+  Github sits. It is the nearest thing a showcase has to "the product itself", which is the question the
+  launcher's power stack answers with Quit. Like the menu's, it is a real `<a>` navigating in the SAME
+  tab: gamepad polling is not a user activation, so a scripted click on `target="_blank"` would be
+  blocked as a popup.
+- **The System stack closes rather than stepping back.** It is opened straight from a card, so there is
+  no menu underneath it — the level above is the carousel. The launcher draws the same distinction with
+  its `popupRoot === 'direct'`.
 - **Settings is the launcher's screen WHOLE, and only Audio is live.** Every section, every row, in the
   launcher's order, with its labels, its hints and the values a freshly installed Playhook shows —
   Updates (status line, mode, pre-release), Language, General (all five toggles, the Steam Deck one

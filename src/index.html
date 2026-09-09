@@ -232,6 +232,33 @@
               <button id="menu-close" class="text-button" type="button">Close</button>
             </div>
 
+            <!-- System, opened by the last card of the strip. The launcher's own power stack, in its
+                 order and with its wording — and every item of it inert here: a web page cannot shut a
+                 machine down, reboot it, put it to sleep, or minimise and quit an application that is a
+                 tab. What is live is the pair at the foot: Github, which is the site's own item and the
+                 nearest thing a showcase has to "the thing itself", and Close. -->
+            <div class="actions-group" data-group="power">
+              <button id="power-shutdown" class="text-button is-disabled" type="button">
+                Shutdown
+              </button>
+              <button id="power-reboot" class="text-button is-disabled" type="button">
+                Reboot
+              </button>
+              <button id="power-sleep" class="text-button is-disabled" type="button">Sleep</button>
+              <button id="power-minimize" class="text-button is-disabled" type="button">
+                Minimize Playhook
+              </button>
+              <button id="power-quit" class="text-button is-disabled" type="button">
+                Close Playhook
+              </button>
+              <!-- A real link in the SAME tab, exactly like the menu's own Github: gamepad polling is not
+                   a user activation, so a scripted click on target="_blank" would be blocked as a popup. -->
+              <a id="power-github" class="text-button" href="https://github.com/sevenns/playhook"
+                >Github</a
+              >
+              <button id="power-close" class="text-button" type="button">Close</button>
+            </div>
+
             <!-- confirm: Yes/No for the force close and for removing an entry. Default focus is the
                  BOTTOM button, which is No — the safe answer, as in the launcher. -->
             <div class="actions-group" data-group="confirm">
