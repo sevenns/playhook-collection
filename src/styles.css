@@ -2007,6 +2007,25 @@ html:not(.mouse-asleep) .setting-row:hover .setting-check {
   cursor: default;
 }
 
+/* The pane's arrival animates `opacity` too, and an animation beats a plain declaration for as long as
+   it is applied — so a dimmed row arrived at FULL strength and only dropped to 0.4 when `is-entering`
+   came off, which reads as the row being switched off after the fact rather than arriving that way.
+   Same motion, its own end value. */
+.setting-row.is-disabled.is-entering {
+  animation-name: setting-row-in-disabled;
+}
+
+@keyframes setting-row-in-disabled {
+  from {
+    opacity: 0;
+    transform: translateY(calc(12 * var(--px)));
+  }
+  to {
+    opacity: 0.4;
+    transform: none;
+  }
+}
+
 /* Updates row: the status line (+ progress bar) on the left, the primary action on the right. Its bar
    never moves here — nothing is downloading — but the row is the launcher's, bar included. */
 .setting-row-status {
