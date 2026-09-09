@@ -2118,6 +2118,47 @@ html:not(.mouse-asleep) .setting-row:hover .setting-check {
   font-weight: 500;
 }
 
+/* The field's own validation problem, under its label. A form of thirty fields makes a list of messages
+   at the bottom useless: it names fields the reader cannot point at.
+
+   NO fixed red anywhere below. The palette is computed from the hero art (--d1/--d2), so a hard-coded
+   accent is a colour that will sooner or later land on a background it cannot be read against. Emphasis
+   is carried by WEIGHT and by an inset bar in currentColor instead. */
+.setting-error {
+  font-weight: 500;
+  font-size: calc(20 * var(--px));
+  line-height: calc(28 * var(--px));
+  color: inherit;
+}
+
+/* A marker on the row itself, so a problem scrolled past is still findable — currentColor, so it
+   survives the focus inversion along with everything else in the row. */
+.setting-row.has-error {
+  box-shadow: inset calc(4 * var(--px)) 0 0 currentColor;
+}
+
+/* Artwork thumbnails, on the row itself: a list of backgrounds is unreadable as three file names. */
+.setting-thumbs {
+  display: flex;
+  align-items: center;
+  gap: calc(8 * var(--px));
+  flex: 0 0 auto;
+}
+
+/* 16:9 for a hero background, 2:3 for the carousel card (a 600x900 portrait) — the artwork's own shape,
+   so a cover squeezed into a landscape box can't read as "that's how it will look". */
+.setting-thumb {
+  height: calc(54 * var(--px));
+  width: calc(96 * var(--px));
+  object-fit: cover;
+  border-radius: calc(6 * var(--px));
+}
+
+.setting-thumbs.is-portrait .setting-thumb {
+  height: calc(72 * var(--px));
+  width: calc(48 * var(--px));
+}
+
 /* An inert row (a note) must never light up under the mouse — it cannot be activated or focused. */
 .setting-row.is-inert {
   pointer-events: none;

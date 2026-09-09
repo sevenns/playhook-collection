@@ -204,7 +204,10 @@ export function createSidebar<Section extends string = string, Action extends st
       announce(true);
       return;
     }
-    if (entry.disabled === true) return;
+    if (entry.disabled === true) {
+      deps.audio.playLimit(); // a shown-but-inert action must say so, not swallow the press
+      return;
+    }
     deps.onAction(entry.id as Action);
   }
 }

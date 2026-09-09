@@ -11,6 +11,14 @@
 // does on a machine that has just installed Playhook.
 import type { AudioOptions } from './audio.js';
 import { LAUNCHER_DEFAULTS, type SiteSettings } from './settings.js';
+import type {
+  CoreNoteRow,
+  CoreOption,
+  CoreSelectRow,
+  CoreSliderRow,
+  CoreTextRow,
+  CoreToggleRow,
+} from './row-view-core.js';
 
 /** Every toggle row, keyed by the AppSettings field it stands for. */
 export type ToggleId =
@@ -37,47 +45,14 @@ export type ActionId = 'reset' | 'close';
 /** The screen's own note — one line, and the site's alone (see the section list at the bottom). */
 export type NoteId = 'showcase';
 
-/** One dropdown option: a bundled file's proper name, or a phrase of the launcher's own. */
-export interface SettingsOption {
-  readonly value: string;
-  readonly label: string;
-}
+/** This screen's dropdown option — the shared one (row-view-core), re-exported under its own name. */
+export type SettingsOption = CoreOption;
 
-interface LabeledRow<Id extends string> {
-  readonly id: Id;
-  readonly label: string;
-  readonly hint?: string;
-  /**
-   * Shown with its value, but inert — the launcher's `disabled`, which it uses for a field that is real
-   * and worth seeing while THIS screen has no business changing it. Here it means "this is the
-   * launcher's, and a web page has nothing to change it with".
-   */
-  readonly inert?: boolean;
-}
-
-export interface ToggleRow extends LabeledRow<ToggleId> {
-  readonly kind: 'toggle';
-  readonly value: boolean;
-}
-
-export interface SelectRow extends LabeledRow<SelectId> {
-  readonly kind: 'select';
-  readonly value: string;
-  readonly options: readonly SettingsOption[];
-}
-
-export interface SliderRow extends LabeledRow<SliderId> {
-  readonly kind: 'slider';
-  /** 0..100, rounded — the display unit; the controller divides by 100 before it stores. */
-  readonly percent: number;
-}
-
-export interface TextRow extends LabeledRow<TextId> {
-  readonly kind: 'text';
-  readonly value: string;
-  /** Shown greyed in place of an empty value. */
-  readonly placeholder?: string;
-}
+export type ToggleRow = CoreToggleRow<ToggleId>;
+export type SelectRow = CoreSelectRow<SelectId>;
+export type SliderRow = CoreSliderRow<SliderId>;
+export type TextRow = CoreTextRow<TextId>;
+export type NoteRow = CoreNoteRow<NoteId>;
 
 /** The Updates row: a status line, a progress bar and a primary button. Settings' own kind upstream too. */
 export interface StatusRow {
@@ -87,19 +62,16 @@ export interface StatusRow {
   readonly inert?: boolean;
 }
 
-/** A free-standing line inside the list. Not focusable — navigation steps over it. */
-export interface NoteRow {
-  readonly kind: 'note';
-  readonly id: NoteId;
-  readonly text: string;
-  readonly tone: 'info' | 'warning' | 'error';
-}
-
 export type SettingsRow = ToggleRow | SelectRow | SliderRow | TextRow | StatusRow | NoteRow;
 
 /** Whether a row can hold the focus at all (a note cannot; an inert row still can, so it can be read). */
 export function isFocusable(row: SettingsRow): boolean {
   return row.kind !== 'note';
+}
+
+/** Whether a row is here to be read rather than changed (see LabeledRow.inert in row-view-core). */
+export function isInertRow(row: SettingsRow): boolean {
+  return row.kind !== 'note' && row.inert === true;
 }
 
 export type SectionId = 'updates' | 'language' | 'general' | 'metadata' | 'audio';

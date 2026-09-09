@@ -12,7 +12,8 @@ Two things live here:
    carousel of covers, and picking an entry previews it the way the launcher would — that entry's hero
    images rotating, its own background music. The Library card at the end of the row opens the whole
    catalogue as a grid, and its "Add game" builds an entry from files on your own disk — that one lives
-   in the tab, and a reload takes it away. The Settings card beside it opens the launcher's Settings
+   in the tab, and a reload takes it away — that form is the launcher's Customize screen whole, with the
+   rows a web page cannot answer shown and inert. The Settings card beside it opens the launcher's Settings
    screen whole — every section it has, as a freshly installed Playhook shows it. Audio is the part this
    page can act on and is live there: all eighteen of the launcher's navigation sound sets and all eleven
    of its ambience tracks, kept in the browser and outliving a reload. The rest is shown to be read.

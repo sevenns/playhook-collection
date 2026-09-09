@@ -22,6 +22,7 @@ import { createSidebar } from './screen-sidebar.js';
 import {
   buildSettingsModel,
   isFocusable,
+  isInertRow,
   volumePercent,
   type ActionId,
   type SectionId,
@@ -194,11 +195,6 @@ export function createSettingsScreen(deps: SettingsScreenDeps): SettingsScreen {
 
   function focusedRow(): RenderedRow | undefined {
     return rendered[focusIndex];
-  }
-
-  /** Whether a row is here to be read rather than changed (see LabeledRow.inert). */
-  function isInert(row: SettingsRow): boolean {
-    return row.kind !== 'note' && row.inert === true;
   }
 
   function pressFlash(el: HTMLElement): void {
@@ -510,7 +506,7 @@ export function createSettingsScreen(deps: SettingsScreenDeps): SettingsScreen {
     const target = focusedRow();
     if (target === undefined) return;
     const row = target.row;
-    if (isInert(row)) {
+    if (isInertRow(row)) {
       if (!repeat) deps.audio.playLimit(); // shown to be read, not to be changed
       return;
     }
@@ -530,7 +526,7 @@ export function createSettingsScreen(deps: SettingsScreenDeps): SettingsScreen {
 
   function activateRow(target: RenderedRow, index: number): void {
     const row = target.row;
-    if (isInert(row)) {
+    if (isInertRow(row)) {
       deps.audio.playLimit();
       return;
     }

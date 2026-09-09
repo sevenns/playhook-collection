@@ -28,7 +28,9 @@ written; re-check against the merged HEAD or the `v0.8.0` tag before relying on 
 | `src/settings.ts` | `src/main/app-settings.ts` + its IPC | the fields the page can act on, and `localStorage` in place of `settings.json`; `LAUNCHER_DEFAULTS` carries the rest as frozen values for the rows that only display them. `DEFAULT_SETTINGS` is the launcher's own |
 | `public/ambience/*.ogg` | `audio/ambience/*.mp3` | all eleven of the launcher's 0.8.0 tracks, re-encoded to Vorbis: `ffmpeg -i <track>.mp3 -c:a libvorbis -q:a 4 <track>.ogg`. The extension is dropped from the stored name (the launcher keeps `playhook-abyss.mp3`, the site keeps `playhook-abyss`) |
 | `src/osk.ts`, `src/osk-text.ts` | `src/renderer/osk.ts`, `src/renderer/osk-text.ts` | 1:1, with the launcher's English labels inlined where it reads its i18n layer, and the clipboard read through the browser rather than main |
-| `src/game-settings-screen.ts` | `src/renderer/game-settings-screen.ts` | the SHAPE only — see below |
+| `src/game-settings-screen.ts` | `src/renderer/game-settings-screen.ts` | the column, the pane, the preview debounce, the entrance, the hover guard, the discard question and the six primitives. Its manifest machinery does not come across: there is no file to serialize, no validator in another process and no list/number editing surface, because every row that would need one is inert here |
+| `src/game-settings-model.ts` | same name | every section and every row of the launcher's form, in its order, with its labels, hints, placeholders and its untouched defaults. Only five rows are live — see below |
+| `src/row-view-core.ts` | same name | the row vocabulary both list screens share (toggle / select / slider / text / number / path / list / note), i18n resolved away, and the launcher's `disabled` renamed `inert` — same treatment, and the site says why |
 | `src/sfx-limit.ts` | `src/renderer/sfx-limit.ts` | 1:1 (its docblock still says `HOLD_DELAY_MS` is 350 — it is 175; the comment is stale upstream and is copied as-is) |
 | `src/px-unit.ts` | `src/renderer/screen-scroller.ts` (`pxUnit`) | rewritten: the launcher multiplies the vh number out of `--px`; this site's `--px` is a `min()` with a media override, which an unregistered custom property never resolves, so the unit is measured off a probe element instead |
 | `src/carousel.ts` | `src/renderer/carousel.ts` | ported; the artwork cache and `artRev` are gone (a cover is a plain URL here and the browser's cache is the cache), the launcher's own system cards are not there yet (phase C), the dot's `.shows-dot`/`.is-busy` states are only entered for a running session, and a third screen value — `home`, the bare landing page — joins `carousel`/`detail`. The focus body, `MoveResult`, `setFlipping`, the `.is-beyond` window and the `data-returning` fan are all in |
@@ -117,15 +119,32 @@ and why a public web page cannot.
   installed, so nothing is unavailable, and a section that can never differ from "All" says less than no
   section at all. What survives is the launcher's OTHER question, where a game comes from: **Collection**
   (published in this repository) and **Added here** (made in the browser, see below).
-- **"Add game" builds an entry that lives until the page is reloaded.** In the launcher the item opens
-  Customize, whose rows are the fields of a `game.json` on a card and whose Save writes that file. A web
-  page has no card and no file, so what is ported is the SCREEN — the same skeleton, the same rows
-  opening the same on-screen keyboard, the same bottom-anchored Save / Close, the same discard question —
-  while the rows collect what a catalogue ENTRY is made of: a name, an address, a cover, backgrounds, a
-  soundtrack. The files are picked from the disk and become blob URLs, which is why the page's CSP admits
-  `blob:` on `img-src` and `media-src` (it admits nothing from the network: a blob URL can only name
-  something this document itself made). The entry is sorted into the catalogue by title like any other
-  and is gone on the next reload, exactly as a removal is.
+- **"Add game" is the launcher's Customize form WHOLE, and five rows of it are live.** Every section in
+  its order — Basics, Launch, Artwork, Saves, Audio, Advanced, Linux — every row with its own label, hint
+  and placeholder, and the values an untouched launcher form holds (its default launch mode is "Run from
+  the card", so the Launch section shows that mode's rows). Same rule as the Settings screen: a showcase
+  that shows half a form shows half a launcher. What can be TOUCHED is what a catalogue entry is made
+  of — **Title**, **Id**, **Backgrounds**, **Card artwork**, **Background music**. The rest is inert: a
+  page has no card to add to, no executable to point at, no installer to run, no save directory and no
+  Proton prefix. The artwork rows draw the launcher's own thumbnails, in the artwork's own shape (16:9 for
+  a background, 2:3 for the cover).
+- **The files are the user's own, and they become blob URLs** — which is why the page's CSP admits
+  `blob:` on `img-src` and `media-src`, and nothing from the network (a blob URL can only name something
+  this document itself made). The entry is sorted into the catalogue by title like any other and is gone
+  on the next reload, exactly as a removal is.
+- **"Find online" is shown and inert, and the reason is the web's, not the launcher's.** Its providers —
+  Steam, GOG, SteamGridDB, Khinsider — are queried from the launcher's MAIN process, where the browser's
+  same-origin rule does not exist. None of them authorises a page to read their answers: Steam's
+  storefront sends no `Access-Control-Allow-Origin` at all (the request goes out and is answered — the
+  browser simply refuses to hand the body to the script), GOG's catalogue names `www.gog.com` and nobody
+  else, and SteamGridDB wants a key, which a public page cannot hold without publishing it. Nothing on
+  the site's side can lift that; only a server of its own could, and a static site has none. What DOES
+  cross an origin is a picture — `<img>` has never obeyed CORS — but a gallery with no search behind it
+  is not the launcher's feature, so the row says what it is instead of pretending.
+- **Per-field errors, not a status line.** The launcher prints a validation problem inside the row it
+  belongs to, because a thirty-field form makes a list at the bottom useless — it names fields the reader
+  cannot point at. That is ported, marker bar included; the site's status line is left for the one
+  message that has no row to sit in (the file dialog's gesture rule, below).
 - **The file dialog is the browser's, and a gamepad cannot open it.** The launcher ships its own file
   browser because a native dialog cannot be driven with a pad over a fullscreen window. Here the native
   one is all there is, and the web attaches its own rule to it: a dialog opens only from a real user

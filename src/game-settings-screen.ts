@@ -1,13 +1,10 @@
 // The Customize screen — the site's counterpart of playhook's per-game editor (c26fae7 :
 // src/renderer/game-settings-screen.ts), in the one mode the site can honestly offer: ADD.
 //
-// The launcher's screen edits a `game.json` on a card: every row is a manifest field, the values are
-// validated by the same zod schema the launcher loads games with, and Save writes the file. A web page
-// has no card, no file and nothing to launch — so what is ported is the SCREEN: the same skeleton the
-// Library uses (veil, column, sidebar, a pane of rows), the same rows that open the on-screen keyboard,
-// the same bottom-anchored actions, the same discard question on the way out. What the rows collect is
-// the site's own shape — the fields a catalogue ENTRY has (title, address, cover, backgrounds, music) —
-// because that is the only thing an entry here is made of.
+// The FORM is the launcher's, whole: every section, every row, its labels and its hints (see
+// game-settings-model.ts). What this file owns is the navigation over it and the handful of rows that
+// are live — the title and the id through the on-screen keyboard, the artwork and the soundtrack through
+// the browser's own file dialog. Everything else is inert and answers with the dead-end sound.
 //
 // The entry it builds lives in memory: reloading the page re-fetches the feed and it is gone. That is the
 // same promise "Remove from library" makes, and for the same reason — a published feed is not this
@@ -15,17 +12,43 @@
 import { type AudioController } from './audio.js';
 import { req } from './dom.js';
 import { createEntrance } from './entrance.js';
+import { createHoverGuard } from './hover-guard.js';
 import { clampIndex } from './index-math.js';
 import type { NavSurface } from './nav-surface.js';
 import type { OskMode, TextEntrySurface } from './osk.js';
+import {
+  buildCoreRow,
+  isFocusable,
+  isInert,
+  patchCoreRow,
+  type CoreRendered,
+} from './row-view-core.js';
+import {
+  buildGameSettingsModel,
+  isLiveRow,
+  MAX_HERO_IMAGES,
+  type GameForm,
+  type GameRowId,
+  type GameSectionId,
+  type GameSettingsModel,
+  type GameSettingsRow,
+  type PickedFile,
+} from './game-settings-model.js';
 import { createScroller } from './screen-scroller.js';
 import { createSidebar, type SidebarEntry } from './screen-sidebar.js';
 
 /** How long the pane's staggered arrival runs before the marks come off (mirrors .is-entering). */
 const ENTRANCE_MS = 700;
-/** Playhook's own cap on hero backgrounds (MAX_HERO_IMAGES in its shared/types.ts). */
-const MAX_HERO_IMAGES = 3;
-/** The slug the address row accepts — the feed's own rule (see isValidSlug in collection.ts). */
+/** The stagger stops counting here: past a handful of rows the wave is a wait, not a wave. */
+const ENTRANCE_STEPS = 8;
+/**
+ * How long the pane waits before showing the section the column moved onto — a held direction walks
+ * through the column faster than that, so the pane is drawn once, when the movement stops.
+ */
+const PREVIEW_MS = 120;
+/** Gamepad A doesn't trigger :active — the same press flash the rest of the UI uses (controls.ts). */
+const PRESS_MS = 130;
+/** The id the feed accepts — the collection's own rule (see isValidSlug in collection.ts). */
 const SLUG_CHARS = /[^a-z0-9-]+/g;
 
 /** What the screen collects. Every URL is a blob the browser made from a file the user picked. */
@@ -37,13 +60,13 @@ export interface GameDraft {
   readonly music: string | null;
 }
 
-type Section = 'game' | 'artwork' | 'sound';
+type SidebarAction = 'find-online' | 'save' | 'close';
 
 export interface GameSettingsScreenDeps {
   readonly audio: AudioController;
   /** The on-screen keyboard — the gamepad's only way to type (see osk.ts). */
   readonly keyboard: TextEntrySurface;
-  /** Whether the catalogue already holds this address. */
+  /** Whether the catalogue already holds this id. */
   slugTaken(slug: string): boolean;
   /** Save: the entry is main's to add, and main is what puts the user in front of it. */
   onAdd(draft: GameDraft): void;
@@ -62,30 +85,27 @@ export interface GameSettingsScreen extends NavSurface {
   isDirty(): boolean;
 }
 
-/** One row of the pane. Two kinds: text (the keyboard) and files (the browser's own picker). */
-type Row =
-  | {
-      readonly kind: 'text';
-      readonly label: string;
-      readonly hint: string;
-      readonly value: string;
-      readonly mode: OskMode;
-      readonly onDone: (value: string) => void;
-    }
-  | {
-      readonly kind: 'file';
-      readonly label: string;
-      readonly hint: string;
-      readonly value: string;
-      readonly accept: string;
-      readonly multiple: boolean;
-      readonly onFiles: (files: readonly File[]) => void;
-    };
+/** One rendered row: the model row it came from plus the nodes the controller updates. */
+interface RenderedRow extends CoreRendered {
+  row: GameSettingsRow;
+}
 
-const SECTION_LABEL: Readonly<Record<Section, string>> = {
-  game: 'Game',
-  artwork: 'Artwork',
-  sound: 'Sound',
+/** Which file dialog a live artwork row opens. */
+interface PickSpec {
+  readonly accept: string;
+  readonly multiple: boolean;
+}
+
+const PICK: Readonly<Partial<Record<GameRowId, PickSpec>>> = {
+  heroImage: { accept: 'image/*', multiple: true },
+  gridImage: { accept: 'image/*', multiple: false },
+  backgroundMusic: { accept: 'audio/*', multiple: false },
+};
+
+/** Which on-screen keyboard mode a live text row opens in. */
+const TYPING: Readonly<Partial<Record<GameRowId, OskMode>>> = {
+  title: 'text',
+  id: 'id',
 };
 
 /**
@@ -101,7 +121,7 @@ function hasUserActivation(): boolean {
   return nav.userActivation?.isActive ?? true;
 }
 
-/** The address the launcher would call an id, derived from the title the way a human would type it. */
+/** The id the launcher would call an id, derived from the title the way a human would type it. */
 function slugify(title: string): string {
   return title
     .toLowerCase()
@@ -117,6 +137,7 @@ export function createGameSettingsScreen(deps: GameSettingsScreenDeps): GameSett
   const statusEl = req('game-settings-status');
   const scroller = createScroller(listEl);
   const entrance = createEntrance(listEl, '.setting-row', ENTRANCE_MS);
+  const hover = createHoverGuard();
 
   /**
    * The file picker is the BROWSER's, not ours. The launcher ships its own file browser because a native
@@ -129,37 +150,197 @@ export function createGameSettingsScreen(deps: GameSettingsScreenDeps): GameSett
   app.append(fileInput);
 
   let open = false;
-  let section: Section = 'game';
-  let rows: readonly Row[] = [];
-  let rowNodes: readonly HTMLElement[] = [];
+  let sectionId: GameSectionId = 'basics';
+  let paneId: GameSectionId | null = null;
+  let previewTimer = 0;
+  let rendered: readonly RenderedRow[] = [];
   let rowIndex = 0;
   let dirty = false;
 
   // The draft. Blob URLs, minted from the files the user picks and revoked as they are replaced: a URL
   // that outlives its draft is a file the tab holds open for nothing.
   let title = '';
-  /** Written by hand once the user edits the address; until then it follows the title. */
-  let slugEdited = false;
-  let slug = '';
-  let cover: { readonly url: string; readonly name: string } | null = null;
-  let heroes: readonly { readonly url: string; readonly name: string }[] = [];
-  let music: { readonly url: string; readonly name: string } | null = null;
+  /** Written by hand once the user edits the id; until then it follows the title. */
+  let idEdited = false;
+  let id = '';
+  let cover: PickedFile | null = null;
+  let heroes: readonly PickedFile[] = [];
+  let music: PickedFile | null = null;
 
-  const sidebar = createSidebar<Section, 'save' | 'discard'>(req('game-settings-nav'), {
+  let model: GameSettingsModel = buildModel();
+
+  const sidebar = createSidebar<GameSectionId, SidebarAction>(req('game-settings-nav'), {
     audio: deps.audio,
-    onSection: (id, entered) => {
-      if (section !== id) {
-        section = id;
-        rowIndex = 0;
-        render(true);
+    onSection: (next, entered) => {
+      sectionId = next;
+      if (entered) {
+        enterPane();
+        return;
       }
-      if (entered) enterPane();
+      schedulePreview();
     },
-    onAction: (id) => {
-      if (id === 'save') save();
-      else leave();
+    onAction: (action) => {
+      if (action === 'save') save();
+      else if (action === 'close') leave();
+      else deps.audio.playLimit(); // Find online — see the note in game-settings-model.ts
     },
   });
+
+  function effectiveId(): string {
+    return idEdited ? id : slugify(title);
+  }
+
+  /** What stands between this draft and Add, per row — the launcher's own per-field errors. */
+  function issues(): Readonly<Partial<Record<GameRowId, string>>> {
+    const found: Partial<Record<GameRowId, string>> = {};
+    if (title.trim() === '') found.title = 'A name is needed — the catalogue lists entries by it.';
+    const address = effectiveId();
+    if (address === '') found.id = 'Give the entry a name in latin letters, or type an id.';
+    else if (deps.slugTaken(address)) found.id = `"${address}" is already taken by another entry.`;
+    return found;
+  }
+
+  function buildModel(): GameSettingsModel {
+    const problems = issues();
+    const form: GameForm = { title, id: effectiveId(), heroes, cover, music };
+    return buildGameSettingsModel(form, {
+      issues: problems,
+      dirty,
+      canSave: Object.keys(problems).length === 0,
+    });
+  }
+
+  function canSave(): boolean {
+    return Object.keys(issues()).length === 0;
+  }
+
+  /** The rows the pane shows: one section's worth. */
+  function rowsOf(section: GameSectionId): readonly GameSettingsRow[] {
+    return model.sections.find((candidate) => candidate.id === section)?.rows ?? [];
+  }
+
+  function schedulePreview(): void {
+    if (previewTimer !== 0) window.clearTimeout(previewTimer);
+    previewTimer = window.setTimeout(() => {
+      previewTimer = 0;
+      renderPane();
+    }, PREVIEW_MS);
+  }
+
+  /**
+   * Brings the pane up to date with the selected section NOW, cancelling a pending preview. Anything
+   * that reads the rendered rows has to call this first — a MOUSE click on a section activates it
+   * without ever moving onto it.
+   */
+  function flushPreview(): void {
+    if (previewTimer !== 0) {
+      window.clearTimeout(previewTimer);
+      previewTimer = 0;
+    }
+    if (paneId !== sectionId) renderPane();
+  }
+
+  /** Rebuilds the column and either patches the pane's values or redraws it outright. */
+  function render(): void {
+    flushPreview();
+    model = buildModel();
+    sidebar.render(sidebarEntries());
+    // The status line is NOT where validation goes: every problem is already printed under the field it
+    // belongs to (row-view-core), and saying it twice made the screen look angrier than it is. What is
+    // left for it is the one message that has no row to sit in — see pickFiles.
+    statusEl.textContent = '';
+    const rows = rowsOf(sectionId);
+    if (paneId === sectionId && rendered.length === rows.filter(isFocusable).length) {
+      const focusable = rows.filter(isFocusable);
+      rendered.forEach((row, at) => {
+        const next = focusable[at];
+        if (next === undefined) return;
+        row.row = next;
+        patchCoreRow(row, next);
+      });
+      return;
+    }
+    renderPane();
+  }
+
+  /** Draws the selected section into the pane. The column is rebuilt separately. */
+  function renderPane(): void {
+    paneId = sectionId;
+    const rows = rowsOf(sectionId);
+    const built = rows.map((row) => {
+      const core = buildCoreRow(row);
+      return { ...core, row };
+    });
+    built.forEach((row, at) =>
+      row.el.style.setProperty('--row-index', String(Math.min(at, ENTRANCE_STEPS))),
+    );
+    listEl.replaceChildren(...built.map((row) => row.el));
+    rendered = built.filter((row) => isFocusable(row.row));
+    entrance.play();
+    rowIndex = Math.min(Math.max(rowIndex, 0), Math.max(0, rendered.length - 1));
+    applyFocus(true);
+    scroller.to(0, true);
+    // The rows were inserted THIS tick, so scrollHeight is still the pre-layout value — the fades would
+    // be computed against a list that "doesn't scroll yet". Re-run them once the layout has settled.
+    requestAnimationFrame(() => scroller.fades());
+  }
+
+  function applyFocus(instant = false): void {
+    const active = !sidebar.hasFocus();
+    listEl.classList.toggle('is-active', active);
+    rendered.forEach((row, at) => row.el.classList.toggle('is-focused', active && at === rowIndex));
+    if (!active) return;
+    const node = rendered[rowIndex];
+    if (node !== undefined) scroller.reveal(node.el, instant);
+  }
+
+  function sidebarEntries(): readonly SidebarEntry<GameSectionId, SidebarAction>[] {
+    return [
+      ...model.sections.map((section) => ({
+        id: section.id,
+        label: section.title,
+        kind: 'section' as const,
+      })),
+      // Shown and inert, exactly as the form's own launcher-only rows are: the launcher searches from its
+      // main process, and no provider lets a web page read its answers (game-settings-model.ts).
+      { id: 'find-online' as const, label: 'Find online', kind: 'action' as const, disabled: true },
+      {
+        id: 'save' as const,
+        label: 'Add',
+        kind: 'action' as const,
+        disabled: !canSave() || !dirty,
+      },
+      { id: 'close' as const, label: 'Close', kind: 'action' as const },
+    ];
+  }
+
+  function enterPane(): void {
+    flushPreview();
+    if (rendered.length === 0) {
+      deps.audio.playLimit();
+      return;
+    }
+    sidebar.setFocused(false);
+    rowIndex = 0;
+    hover.arm();
+    applyFocus();
+  }
+
+  function leavePane(): void {
+    sidebar.setFocused(true);
+    hover.arm();
+    applyFocus();
+  }
+
+  function markDirty(): void {
+    dirty = true;
+    render();
+  }
+
+  function pressFlash(el: HTMLElement): void {
+    el.classList.add('is-pressed');
+    window.setTimeout(() => el.classList.remove('is-pressed'), PRESS_MS);
+  }
 
   function revoke(url: string | null | undefined): void {
     if (url !== null && url !== undefined) URL.revokeObjectURL(url);
@@ -171,188 +352,24 @@ export function createGameSettingsScreen(deps: GameSettingsScreenDeps): GameSett
     revoke(music?.url);
   }
 
-  function effectiveSlug(): string {
-    return slugEdited ? slug : slugify(title);
-  }
-
-  /** What stands between this draft and Save. Shown under both columns, as the launcher's status is. */
-  function problem(): string | null {
-    if (title.trim() === '') return 'A name is needed — the catalogue lists entries by it.';
-    const address = effectiveSlug();
-    if (address === '')
-      return 'The address is empty: give the entry a name in latin letters, or type one.';
-    if (deps.slugTaken(address))
-      return `The address "${address}" is already taken by another entry.`;
-    return null;
-  }
-
-  function applyStatus(): void {
-    const text = problem();
-    statusEl.textContent = text ?? '';
-  }
-
-  function rowsOf(current: Section): readonly Row[] {
-    if (current === 'game') {
-      return [
-        {
-          kind: 'text',
-          label: 'Name',
-          hint: 'What the catalogue lists this entry by.',
-          value: title,
-          mode: 'text',
-          onDone: (value) => {
-            title = value;
-            markDirty();
-          },
-        },
-        {
-          kind: 'text',
-          label: 'Address',
-          hint: 'The last part of this entry’s link — lower-case letters, digits and dashes.',
-          value: effectiveSlug(),
-          mode: 'id',
-          onDone: (value) => {
-            const cleaned = value
-              .toLowerCase()
-              .replace(SLUG_CHARS, '-')
-              .replace(/^-+|-+$/g, '');
-            slugEdited = cleaned !== '';
-            slug = cleaned;
-            markDirty();
-          },
-        },
-      ];
+  /** Applies the files a live artwork row just collected. */
+  function applyFiles(rowId: GameRowId, files: readonly File[]): void {
+    const first = files[0];
+    if (first === undefined) return;
+    if (rowId === 'heroImage') {
+      for (const hero of heroes) revoke(hero.url);
+      heroes = files.slice(0, MAX_HERO_IMAGES).map((file) => ({
+        url: URL.createObjectURL(file),
+        name: file.name,
+      }));
+    } else if (rowId === 'gridImage') {
+      revoke(cover?.url);
+      cover = { url: URL.createObjectURL(first), name: first.name };
+    } else {
+      revoke(music?.url);
+      music = { url: URL.createObjectURL(first), name: first.name };
     }
-    if (current === 'artwork') {
-      return [
-        {
-          kind: 'file',
-          label: 'Cover',
-          hint: 'The card in the strip and in the grid. Portrait 2:3, like the collection’s own.',
-          value: cover?.name ?? 'Not set',
-          accept: 'image/*',
-          multiple: false,
-          onFiles: (files) => {
-            const file = files[0];
-            if (file === undefined) return;
-            revoke(cover?.url);
-            cover = { url: URL.createObjectURL(file), name: file.name };
-            markDirty();
-          },
-        },
-        {
-          kind: 'file',
-          label: 'Backgrounds',
-          hint: `The hero images the entry’s screen rotates through. Up to ${MAX_HERO_IMAGES}.`,
-          value: heroes.length === 0 ? 'Not set' : heroes.map((hero) => hero.name).join(', '),
-          accept: 'image/*',
-          multiple: true,
-          onFiles: (files) => {
-            if (files.length === 0) return;
-            for (const hero of heroes) revoke(hero.url);
-            heroes = files.slice(0, MAX_HERO_IMAGES).map((file) => ({
-              url: URL.createObjectURL(file),
-              name: file.name,
-            }));
-            markDirty();
-          },
-        },
-      ];
-    }
-    return [
-      {
-        kind: 'file',
-        label: 'Music',
-        hint: 'Plays while the entry is on screen, as a collection entry’s theme does.',
-        value: music?.name ?? 'Not set',
-        accept: 'audio/*',
-        multiple: false,
-        onFiles: (files) => {
-          const file = files[0];
-          if (file === undefined) return;
-          revoke(music?.url);
-          music = { url: URL.createObjectURL(file), name: file.name };
-          markDirty();
-        },
-      },
-    ];
-  }
-
-  function markDirty(): void {
-    dirty = true;
-    render(false);
-  }
-
-  function buildRow(row: Row, at: number): HTMLElement {
-    const node = document.createElement('div');
-    node.className = 'setting-row';
-    node.style.setProperty('--row-index', String(at));
-    const box = document.createElement('div');
-    box.className = 'setting-label-box';
-    const label = document.createElement('div');
-    label.className = 'setting-label';
-    label.textContent = row.label;
-    const hint = document.createElement('div');
-    hint.className = 'setting-hint';
-    hint.textContent = row.hint;
-    box.append(label, hint);
-    const value = document.createElement('div');
-    value.className = 'setting-value setting-value-wide';
-    // A file's name comes from the user's own disk — textContent, never innerHTML.
-    value.textContent = row.value;
-    node.append(box, value);
-    node.addEventListener('click', () => {
-      sidebar.setFocused(false);
-      rowIndex = at;
-      applyFocus();
-      activateRow();
-    });
-    return node;
-  }
-
-  /** Rebuilds the pane. `animate` is for a SECTION change — not for a value the user just typed. */
-  function render(animate: boolean): void {
-    rows = rowsOf(section);
-    rowNodes = rows.map((row, at) => buildRow(row, at));
-    listEl.replaceChildren(...rowNodes);
-    rowIndex = clampIndex(rowIndex, 0, rows.length);
-    applyFocus();
-    applyStatus();
-    sidebar.render(sidebarEntries());
-    if (animate) entrance.play();
-    requestAnimationFrame(() => scroller.fades());
-  }
-
-  function applyFocus(): void {
-    const active = !sidebar.hasFocus();
-    listEl.classList.toggle('is-active', active);
-    rowNodes.forEach((node, at) => node.classList.toggle('is-focused', active && at === rowIndex));
-    const node = rowNodes[rowIndex];
-    if (active && node !== undefined) scroller.reveal(node);
-  }
-
-  function sidebarEntries(): readonly SidebarEntry<Section, 'save' | 'discard'>[] {
-    return [
-      { id: 'game', label: SECTION_LABEL.game, kind: 'section' },
-      { id: 'artwork', label: SECTION_LABEL.artwork, kind: 'section' },
-      { id: 'sound', label: SECTION_LABEL.sound, kind: 'section' },
-      { id: 'save', label: 'Save', kind: 'action', disabled: problem() !== null },
-      { id: 'discard', label: 'Close', kind: 'action' },
-    ];
-  }
-
-  function enterPane(): void {
-    if (rows.length === 0) {
-      deps.audio.playLimit();
-      return;
-    }
-    sidebar.setFocused(false);
-    applyFocus();
-  }
-
-  function leavePane(): void {
-    sidebar.setFocused(true);
-    applyFocus();
+    markDirty();
   }
 
   /**
@@ -364,7 +381,7 @@ export function createGameSettingsScreen(deps: GameSettingsScreenDeps): GameSett
    * nothing. It is the same wall the launcher ships its own file browser to get around, and the one part
    * of that screen a web page cannot have.
    */
-  function pickFiles(row: Extract<Row, { kind: 'file' }>): void {
+  function pickFiles(rowId: GameRowId, spec: PickSpec): void {
     if (!hasUserActivation()) {
       deps.audio.playLimit();
       statusEl.textContent =
@@ -372,41 +389,64 @@ export function createGameSettingsScreen(deps: GameSettingsScreenDeps): GameSett
       return;
     }
     deps.audio.play('button');
-    fileInput.accept = row.accept;
-    fileInput.multiple = row.multiple;
+    fileInput.accept = spec.accept;
+    fileInput.multiple = spec.multiple;
     fileInput.value = '';
     fileInput.onchange = (): void => {
       const files = [...(fileInput.files ?? [])];
       fileInput.onchange = null;
       if (files.length === 0) return;
-      row.onFiles(files);
+      applyFiles(rowId, files);
     };
     fileInput.click();
   }
 
-  function activateRow(): void {
-    const row = rows[rowIndex];
-    if (row === undefined) return;
-    if (row.kind === 'file') {
-      pickFiles(row);
-      return;
-    }
+  function typeInto(rowId: GameRowId, mode: OskMode, label: string): void {
+    deps.audio.play('button');
     deps.keyboard.open({
-      value: row.value,
-      mode: row.mode,
-      title: row.label,
-      onDone: (value) => row.onDone(value),
+      value: rowId === 'title' ? title : effectiveId(),
+      mode,
+      title: label,
+      onDone: (value) => {
+        if (rowId === 'title') title = value;
+        else {
+          const cleaned = value
+            .toLowerCase()
+            .replace(SLUG_CHARS, '-')
+            .replace(/^-+|-+$/g, '');
+          idEdited = cleaned !== '';
+          id = cleaned;
+        }
+        markDirty();
+      },
     });
   }
 
+  function activateRow(target: RenderedRow): void {
+    const row = target.row;
+    if (row.kind === 'note') return;
+    if (isInert(row) || !isLiveRow(row.id)) {
+      deps.audio.playLimit();
+      return;
+    }
+    pressFlash(target.el);
+    const spec = PICK[row.id];
+    if (spec !== undefined) {
+      pickFiles(row.id, spec);
+      return;
+    }
+    const mode = TYPING[row.id];
+    if (mode !== undefined) typeInto(row.id, mode, row.label);
+  }
+
   function save(): void {
-    if (problem() !== null) {
+    if (!canSave()) {
       deps.audio.playLimit();
       return;
     }
     deps.audio.play('button');
     const draft: GameDraft = {
-      slug: effectiveSlug(),
+      slug: effectiveId(),
       title: title.trim(),
       gridUrl: cover?.url ?? null,
       heroUrls: heroes.map((hero) => hero.url),
@@ -438,6 +478,10 @@ export function createGameSettingsScreen(deps: GameSettingsScreenDeps): GameSett
     open = false;
     deps.keyboard.close(); // it lives outside this screen and would otherwise stay up over the carousel
     entrance.cancel();
+    if (previewTimer !== 0) {
+      window.clearTimeout(previewTimer);
+      previewTimer = 0;
+    }
     delete app.dataset['overlay'];
     screen.setAttribute('aria-hidden', 'true');
     if (silent) return;
@@ -453,31 +497,97 @@ export function createGameSettingsScreen(deps: GameSettingsScreenDeps): GameSett
     hide(false);
   }
 
+  function moveRowFocus(delta: number, repeat: boolean): void {
+    if (rendered.length === 0) return;
+    const next = clampIndex(rowIndex, delta, rendered.length);
+    if (next === rowIndex) {
+      if (!repeat) deps.audio.playLimit();
+      return;
+    }
+    rowIndex = next;
+    deps.audio.play('navigate');
+    applyFocus();
+  }
+
+  // ── Mouse ──────────────────────────────────────────────────────────────────
+
+  listEl.addEventListener('click', (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const rowEl = target.closest<HTMLElement>('.setting-row');
+    if (rowEl === null) return;
+    const index = rendered.findIndex((row) => row.el === rowEl);
+    if (index === -1) return;
+    const entry = rendered[index];
+    if (entry === undefined) return;
+    sidebar.setFocused(false);
+    rowIndex = index;
+    applyFocus();
+    activateRow(entry);
+  });
+
+  /**
+   * Hover, for the row list. WHEN it is allowed to move the focus is the shared hover guard's job — it
+   * keeps tracking the pointer while the screen is closed, so opening can arm it at wherever the cursor
+   * happens to rest.
+   */
+  let pointerX = -1;
+  let pointerY = -1;
+
+  window.addEventListener(
+    'mousemove',
+    (event) => {
+      const moved = event.clientX !== pointerX || event.clientY !== pointerY;
+      pointerX = event.clientX;
+      pointerY = event.clientY;
+      hover.track(event.clientX, event.clientY);
+      if (!moved || !open) return;
+      if (document.documentElement.classList.contains('mouse-asleep')) return;
+      if (!hover.awake(event.clientX, event.clientY)) return;
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const rowEl = target.closest<HTMLElement>('.setting-row');
+      if (rowEl === null) return;
+      const index = rendered.findIndex((row) => row.el === rowEl);
+      if (index === -1 || (index === rowIndex && !sidebar.hasFocus())) return;
+      sidebar.setFocused(false);
+      rowIndex = index;
+      applyFocus();
+    },
+    { passive: true },
+  );
+
   return {
     isOpen: () => open,
     isDirty: () => dirty,
+
     openNew: () => {
       if (open) return;
       title = '';
-      slug = '';
-      slugEdited = false;
+      id = '';
+      idEdited = false;
       cover = null;
       heroes = [];
       music = null;
       dirty = false;
-      section = 'game';
+      sectionId = 'basics';
+      paneId = null;
+      rendered = [];
       rowIndex = 0;
       open = true;
       app.dataset['overlay'] = 'game-settings';
       screen.setAttribute('aria-hidden', 'false');
       deps.audio.play('popup-open');
+      model = buildModel();
       sidebar.render(sidebarEntries());
       sidebar.reset();
       sidebar.setFocused(true);
       sidebar.animateIn();
-      render(true);
+      hover.arm();
       scroller.to(0, true);
+      render();
     },
+
     close: (silent = false) => {
       if (silent) {
         hide(true);
@@ -485,83 +595,72 @@ export function createGameSettingsScreen(deps: GameSettingsScreenDeps): GameSett
       }
       close();
     },
+
     navUp: (repeat = false) => {
       if (deps.keyboard.isOpen()) {
         deps.keyboard.navUp(repeat);
         return;
       }
-      if (sidebar.hasFocus()) {
-        sidebar.move(-1);
-        return;
-      }
-      const next = clampIndex(rowIndex, -1, rows.length);
-      if (next === rowIndex) {
-        if (!repeat) deps.audio.playLimit();
-        return;
-      }
-      rowIndex = next;
-      deps.audio.play('navigate');
-      applyFocus();
+      hover.arm();
+      if (sidebar.hasFocus()) sidebar.move(-1);
+      else moveRowFocus(-1, repeat);
     },
+
     navDown: (repeat = false) => {
       if (deps.keyboard.isOpen()) {
         deps.keyboard.navDown(repeat);
         return;
       }
-      if (sidebar.hasFocus()) {
-        sidebar.move(1);
-        return;
-      }
-      const next = clampIndex(rowIndex, 1, rows.length);
-      if (next === rowIndex) {
-        if (!repeat) deps.audio.playLimit();
-        return;
-      }
-      rowIndex = next;
-      deps.audio.play('navigate');
-      applyFocus();
+      hover.arm();
+      if (sidebar.hasFocus()) sidebar.move(1);
+      else moveRowFocus(1, repeat);
     },
+
     navLeft: (repeat = false) => {
       if (deps.keyboard.isOpen()) {
         deps.keyboard.navLeft(repeat);
         return;
       }
-      if (sidebar.hasFocus()) {
-        if (!repeat) deps.audio.playLimit(); // the edge of the screen
-        return;
-      }
-      if (repeat) return; // a hold must not walk out of the pane it is running through
-      deps.audio.play('navigate');
-      leavePane();
+      hover.arm();
+      // The column is the edge of the screen: left off it leads nowhere, and inside the pane left belongs
+      // to the rows that have a range to step along — none of this screen's do. Leaving is B.
+      if (!repeat) deps.audio.playLimit();
     },
+
     navRight: (repeat = false) => {
       if (deps.keyboard.isOpen()) {
         deps.keyboard.navRight(repeat);
         return;
       }
+      hover.arm();
       if (!sidebar.hasFocus()) {
-        if (!repeat) deps.audio.playLimit(); // the rows have nothing to the right of them
+        if (!repeat) deps.audio.playLimit();
         return;
       }
       if (sidebar.selected()?.kind === 'section') enterPane();
       else deps.audio.playLimit(); // the actions at its foot lead nowhere sideways
     },
+
     navActivate: () => {
       if (deps.keyboard.isOpen()) {
         deps.keyboard.navActivate();
         return;
       }
+      hover.arm();
       if (sidebar.hasFocus()) {
         sidebar.activate();
         return;
       }
-      activateRow();
+      const target = rendered[rowIndex];
+      if (target !== undefined) activateRow(target);
     },
+
     navBack: () => {
       if (deps.keyboard.isOpen()) {
         deps.keyboard.navBack();
         return;
       }
+      hover.arm();
       if (!sidebar.hasFocus()) {
         deps.audio.play('back');
         leavePane();
@@ -569,6 +668,7 @@ export function createGameSettingsScreen(deps: GameSettingsScreenDeps): GameSett
       }
       leave();
     },
+
     navSecondary: (repeat = false) => {
       if (deps.keyboard.isOpen()) deps.keyboard.navSecondary?.(repeat);
       else if (!repeat) deps.audio.playLimit();
@@ -585,10 +685,11 @@ export function createGameSettingsScreen(deps: GameSettingsScreenDeps): GameSett
       if (deps.keyboard.isOpen()) deps.keyboard.navCommit?.();
       else deps.audio.playLimit();
     },
+
     relocalize: () => {
       // The site has no language to switch; the contract keeps the method (nav-surface.ts).
       if (!open) return;
-      render(false);
+      render();
     },
   };
 }
