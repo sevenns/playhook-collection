@@ -212,6 +212,10 @@ and why a public web page cannot.
   not opened this way — it is a surface rather than an entry, and brushing the stick downwards mid-flip
   is how you end up in a screen nobody asked for. Held presses are dropped on both, so pausing a flip on
   a card never walks out of it a moment later.
+- **An entry screen opens on Play**, which is index 0 of the bar and where the launcher leaves it too —
+  Play is what an entry screen is for. The bar keeps NO focusables on the carousel (an empty list, not
+  `[More]`), so a trip through the strip leaves the index alone instead of clamping it; that is the
+  launcher's own guard, and without it the highlight quietly moved between entries.
 - **Play has no pulse ring.** It had one, echoing an earlier mockup; 0.8.0 dropped it, and Play now says
   it is focused the way every other control does — the `--d2` fill — with nothing on the bar animating on
   its own.

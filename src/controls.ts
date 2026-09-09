@@ -600,8 +600,12 @@ export function createControls(deps: ControlsDeps): Controls {
   // ── Bar focus (horizontal) ───────────────────────────────────────────────────
 
   function barFocusables(): readonly HTMLButtonElement[] {
-    // Play only exists where it can act: on an entry screen (the landing page is the launcher's idle
-    // screen, and the launcher hides Play there) whose entry is not locked out by another session.
+    // The carousel has no bar to focus at all: Play is the selected card's invisible stand-in for the
+    // morph and More is faded out (styles.css), so the row is the surface there. Returning an EMPTY list
+    // rather than [More] is what lets the focus survive a trip through the strip — see applyFocus.
+    if (carousel.screen() === 'carousel') return [];
+    // Play only exists where it can act: on an entry screen whose entry is not locked out by another
+    // session (the launcher hides it the same way for a game it cannot start).
     return playable() ? [playButton, moreButton] : [moreButton];
   }
 
@@ -623,6 +627,13 @@ export function createControls(deps: ControlsDeps): Controls {
     if (router.current().kind === 'game' && !playable()) app.dataset['layout'] = 'no-play';
     else delete app.dataset['layout'];
     const items = barFocusables();
+    // The carousel's empty bar: clamping against a length of 0 would push the index to -1 and quietly
+    // move the focus the next time an entry screen is entered — wherever it had been left. The
+    // launcher's own guard, verbatim.
+    if (items.length === 0) {
+      for (const btn of ALL_BAR_BUTTONS) btn.classList.remove('is-focused');
+      return;
+    }
     focusIndex = Math.min(items.length - 1, Math.max(0, focusIndex));
     const active = focusActive() && focusRevealed;
     for (const btn of ALL_BAR_BUTTONS) {
@@ -1182,9 +1193,11 @@ export function createControls(deps: ControlsDeps): Controls {
     },
 
     onRoute(): void {
-      // More is the one button on every screen, so keep the bar focus there across a route change
-      // rather than letting a clamped index land on whichever button now occupies that slot.
-      focusIndex = barFocusables().indexOf(moreButton);
+      // The focus is NOT reset here. Opening an entry lands on Play — index 0, which is what the bar
+      // starts at and what the launcher leaves it at — because Play is the thing an entry screen is for.
+      // It used to be forced onto More, which made sense only while the landing page existed and had
+      // nothing else to offer. Leaving an entry the other way (a full-screen screen closing over it)
+      // still puts it back on More: see screenClosed.
       applyGithubHref();
       applyMenuItems();
       applyFocus();
