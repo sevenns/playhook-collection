@@ -1147,6 +1147,24 @@ html.kbd-focus .play-button:focus-visible {
   animation: none;
 }
 
+/* …and an INERT item has the same quarrel with it, permanently: the entrance stays applied for as long
+   as the popup is open, so its end value (opacity 1) beat the dimming outright and the System stack's
+   power actions looked exactly like the live ones. Same motion, its own end value. */
+.popup.is-open .actions-group > .text-button.is-disabled {
+  animation-name: popup-item-in-disabled;
+}
+
+@keyframes popup-item-in-disabled {
+  from {
+    opacity: 0;
+    transform: translateY(calc(12 * var(--px)));
+  }
+  to {
+    opacity: 0.4;
+    transform: none;
+  }
+}
+
 /* ── Popup content (the entry's play statistics) ────────────────────────────
    Top content — inset 100 from the column top. Only the active view's block shows; the launcher has
    three (info stats / confirm question+note / error title+detail), the site keeps the first. */

@@ -69,12 +69,8 @@ let titleHeld = false;
 /** Pending "the run is really over" (see FLIP_SETTLE_MS); 0 when the strip is at rest or flipping. */
 let flipSettleTimer = 0;
 
-/**
- * The name the strip is standing on — written at once, or held until the flip settles (see above). Null
- * clears the bar: the System card has no caption at all, which is the launcher's own mockup (its
- * `titleKey` is null there).
- */
-function setBrowseTitle(title: string | null): void {
+/** The name the strip is standing on — written at once, or held until the flip settles (see above). */
+function setBrowseTitle(title: string): void {
   if (stripFlipping) {
     titleHeld = true;
     return;
@@ -106,7 +102,9 @@ function settleFlip(): void {
   // site card names itself there exactly as an entry does.
   const selected = carousel.screen() === 'carousel' ? carousel.selected() : undefined;
   if (selected === undefined) return;
-  router.setBrowseCopy(selected.kind === 'game' ? selected.entry.title : selected.card.title);
+  router.setBrowseCopy(
+    selected.kind === 'game' ? selected.entry.title : (selected.card.title ?? ''),
+  );
 }
 
 function onFlipping(flipping: boolean): void {
@@ -290,7 +288,10 @@ const carousel = createCarousel({
   onBrowseNone: (card) => {
     // A site card is selected: there is no entry on screen at all. It names itself in the bar, exactly
     // where an entry's name goes, and the background falls back to the site's own wallpaper.
-    setBrowseTitle(card.title);
+    // An EMPTY string, not null: null is the router's "no card at all", which puts the landing page's
+    // own two lines back in the bar. The System card has no caption in the launcher's mockup either —
+    // there it writes '' into the title for exactly this card — so both lines go blank instead.
+    setBrowseTitle(card.title ?? '');
     applyNothing();
     applySession();
   },
@@ -421,8 +422,9 @@ function applyRoute(route: Route): void {
   carousel.setScreen('carousel');
   const selected = carousel.screen() === 'carousel' ? carousel.selected() : undefined;
   if (selected !== undefined && selected.kind === 'system') {
-    // The row is standing on a site card: it names itself and the wallpaper stays up.
-    setBrowseTitle(selected.card.title);
+    // The row is standing on a site card: it names itself and the wallpaper stays up (the System card
+    // names nothing — see setBrowseTitle's caller in onBrowseNone).
+    setBrowseTitle(selected.card.title ?? '');
     applyNothing();
     return;
   }

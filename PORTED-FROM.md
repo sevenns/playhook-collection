@@ -87,7 +87,9 @@ and why a public web page cannot.
   strip's cap of nine (`MAX_STRIP_GAMES`) is applied as the launcher applies it: everything past the
   ninth entry is reached through the Library, which holds every one of them.
 - **The System card shows no caption**, exactly as the launcher's mockup has it (`titleKey: null` there,
-  `title: null` here) — the bar keeps the landing copy while the row stands on it.
+  `title: null` here) — both bar lines go blank while the row stands on it, which is what the launcher
+  writes there too (`titleEl.textContent = ''` for exactly this card). An empty string, not the site's
+  `null`: null is the router's "no card at all", and that puts the landing page's own two lines back.
 - **Its stack is the launcher's, and every power action in it is inert.** Shutdown, Reboot, Sleep,
   Minimize Playhook, Close Playhook — the launcher's own five, in its order and with its wording, shown
   at the same dimmed opacity the inert form rows use. A web page cannot turn a machine off, restart it,
