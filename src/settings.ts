@@ -49,8 +49,8 @@ export const LAUNCHER_DEFAULTS = {
   steamGridDbApiKey: '',
 } as const;
 
-/** The Playhook release this UI was copied from — shown beside the screen title, as the launcher does. */
-export const LAUNCHER_VERSION = '0.8.0';
+/** The Playhook release this UI matches — shown beside the screen title, as the launcher does. */
+export const LAUNCHER_VERSION = '0.8.1';
 
 const STORAGE_KEY = 'playhook-collection:settings';
 
