@@ -3,12 +3,12 @@
 // would 404 on a reload; and because staying on one document keeps the hero cross-fade and the popup
 // alive across a route change instead of reloading and recomputing the palette.
 //
-// Collection is NOT a route. It is a LAYER over the landing page — the carousel of covers, which in the
-// launcher is a screen level rather than a place — so `#/collection` is a deep link meaning "home with
-// the carousel up", not a third member of the union. Its hash is written with replaceState wherever it
-// is toggled in place (opening and closing it repeatedly would otherwise turn the browser's Back button
-// into a menu toggle); only the step BACK to it from an entry, where the two really are different
-// places, pushes a history entry of its own.
+// The carousel IS the top level, as the launcher's strip is: `#/`, `#/collection` and anything
+// unrecognised all mean it, and `#/collection/<slug>` is an entry's preview. (The site used to open on a
+// landing page with the carousel as a layer over it, which is why `Parsed` still carries a
+// `wantsCollection` bit.) The home hash is written with replaceState, so the address bar cannot turn the
+// browser's Back button into a toggle; only the step BACK to the carousel from an entry, where the two
+// really are different places, pushes a history entry of its own.
 
 import { req } from './dom.js';
 import { isValidSlug } from './collection.js';
