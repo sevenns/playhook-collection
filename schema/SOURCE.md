@@ -15,8 +15,8 @@ function there means the collection has no schema at all.
 | | |
 |---|---|
 | Source repo | [sevenns/playhook](https://github.com/sevenns/playhook) |
-| Version | 0.8.0 |
-| Commit | `c26fae7` (branch `release/v0.8.0`) |
+| Version | 0.8.0 (unchanged through 0.8.1: `manifest.ts` did not move between `c26fae7` and `b370000`) |
+| Commit | `c26fae7` (branch `release/v0.8.0`, merged) |
 | Dumped | 2026-09-08 |
 
 ## What the schema does NOT check

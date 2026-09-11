@@ -10,21 +10,23 @@ Two things live here:
    It is [Playhook](https://github.com/sevenns/playhook)'s own UI, rebuilt as a static page: same hero,
    same boot screen, same bar, same menu, same sounds, same gamepad. It opens straight onto the
    catalogue as a carousel of covers, and picking an entry previews it the way the launcher would — that entry's hero
-   images rotating, its own background music. The Library card at the end of the row opens the whole
-   catalogue as a grid, and its "Add game" builds an entry from files on your own disk — that one lives
+   images rotating, its own background music. The Library card, first of the three system cards after
+   the entries, opens the whole catalogue as a grid, and its "Add game" builds an entry from files on your own disk — that one lives
    in the tab, and a reload takes it away — that form is the launcher's Customize screen whole, with the
    rows a web page cannot answer shown and inert. The Settings card beside it opens the launcher's Settings
    screen whole — every section it has, as a freshly installed Playhook shows it. Audio is the part this
    page can act on and is live there: all eighteen of the launcher's navigation sound sets and all eleven
    of its ambience tracks, kept in the browser and outliving a reload. The rest is shown to be read. The System card at the end of the row carries the launcher's
-   power stack, inert, with a Github link added above its Close.
+   power stack, inert, with a Github link added above its Close. The play statistics in the menu's
+   Details view (last played, playtime, launches) are invented — derived from the entry's slug, so they
+   hold still — because a showcase has no sessions to count.
 2. **The collection** — ready-made `game.json` manifests per game (hero images, the carousel cover, save
    paths, titles), so you don't have to write one from scratch. See
    [collection/README.md](collection/README.md).
 
 The site is the first consumer of the collection's own JSON feed (`api/v1/index.json`), which is
 generated on every build — so the feed is exercised by every deploy instead of "later". It is also,
-so far, the only one: Playhook 0.8.0 takes a game's metadata straight from the stores (Steam, GOG,
+so far, the only one: Playhook 0.8.1 takes a game's metadata straight from the stores (Steam, GOG,
 SteamGridDB and friends) and does not read this feed. Wiring the launcher to it is a separate
 conversation; the feed is kept honest in the meantime.
 
