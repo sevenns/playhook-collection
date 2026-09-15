@@ -6,6 +6,6 @@
   "preview": {
     "hero": ["assets/hero2.jpg", "assets/hero1.jpg", "assets/hero3.jpg"],
     "grid": "assets/grid.webp",
-    "music": "assets/theme.mp3"
+    "music": "assets/theme.ogg"
   }
 }

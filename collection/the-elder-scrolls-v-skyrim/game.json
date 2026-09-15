@@ -8,5 +8,5 @@
   "watchProcesses": ["unknown.exe"],
   "heroImage": ["assets/hero-0.jpg", "assets/hero-1.webp"],
   "gridImage": "assets/grid.webp",
-  "backgroundMusic": "assets/theme.mp3"
+  "backgroundMusic": "assets/theme.ogg"
 }
