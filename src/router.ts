@@ -1,14 +1,13 @@
-// Hash routing. One HTML document, two screens: the landing page and a collection entry's preview.
-// A hash — not a path — because GitHub Pages serves static files with no rewrite rules, so /collection
-// would 404 on a reload; and because staying on one document keeps the hero cross-fade and the popup
-// alive across a route change instead of reloading and recomputing the palette.
+// Hash routing. One HTML document, two screens: the carousel and a collection entry's preview. A hash —
+// not a path — because GitHub Pages serves static files with no rewrite rules, so /collection would 404
+// on a reload; and because staying on one document keeps the hero cross-fade and the popup alive across
+// a route change instead of reloading and recomputing the palette.
 //
 // The carousel IS the top level, as the launcher's strip is: `#/`, `#/collection` and anything
-// unrecognised all mean it, and `#/collection/<slug>` is an entry's preview. (The site used to open on a
-// landing page with the carousel as a layer over it, which is why `Parsed` still carries a
-// `wantsCollection` bit.) The home hash is written with replaceState, so the address bar cannot turn the
-// browser's Back button into a toggle; only the step BACK to the carousel from an entry, where the two
-// really are different places, pushes a history entry of its own.
+// unrecognised all mean it (`home`), and `#/collection/<slug>` is an entry's preview (`game`). The home
+// hash is written with replaceState, so the address bar cannot turn the browser's Back button into a
+// toggle; only the step BACK to the carousel from an entry, where the two really are different places,
+// pushes a history entry of its own.
 
 import { req } from './dom.js';
 import { isValidSlug } from './collection.js';
@@ -42,11 +41,10 @@ export interface Router {
   /**
    * The landing page's two lines while the carousel is browsing: the selected entry's name in place of
    * "Playhook", with the same caption under it that its own screen carries. `null` restores the landing
-   * page's own copy — which is what closing the carousel does.
+   * page's own copy — what shows while the row has nothing to browse (the feed still in flight, or
+   * failed).
    */
   setBrowseCopy(name: string | null): void;
-  /** Opens or closes the carousel over the landing page (replaceState — it is a toggle, not a place). */
-  setCollectionVisible(visible: boolean): void;
   /** Sends the user to the catalogue with the carousel up. Where an unknown slug lands — and it REPLACES
    *  the current entry, because a dead link has no business sitting in the back stack. */
   showCollection(): void;
@@ -58,30 +56,21 @@ export interface Router {
    *  link has nothing to go back to, so it writes the hash instead. */
   goHome(): void;
   /** Renders the current route and starts listening for hash changes. */
-  start(onChange: (route: Route, wantsCollection: boolean) => void): void;
+  start(onChange: (route: Route) => void): void;
 }
 
-/** What the hash means: the route, plus whether the game list should be open over it. */
-export interface Parsed {
-  readonly route: Route;
-  readonly wantsCollection: boolean;
-}
-
-/** Exported for the tests: the hash is untrusted input, and this is the whole of what reads it. */
-export function parse(hash: string): Parsed {
+/** What the hash means. Exported for the tests: the hash is untrusted input, and this is the whole of
+ *  what reads it. */
+export function parse(hash: string): Route {
   const path = hash.replace(/^#\/?/, '');
   const match = /^collection\/([^/?#]+)$/.exec(path);
   const slug = match?.[1];
   // A slug arrives from the URL, i.e. from untrusted input: reject anything that isn't a slug BEFORE it
   // can become part of a feed URL.
-  if (slug !== undefined && isValidSlug(slug)) {
-    return { route: { kind: 'game', slug }, wantsCollection: false };
-  }
-  // Everything else — `#/`, `#/collection`, and anything unrecognised — is the carousel. The site used
-  // to open on a landing page with the strip as a layer over it, which is one level more than the
-  // launcher has: there the row IS the top level. `wantsCollection` stays in the shape because the
-  // ENTRY route still has to say the strip is not showing.
-  return { route: { kind: 'home' }, wantsCollection: true };
+  if (slug !== undefined && isValidSlug(slug)) return { kind: 'game', slug };
+  // Everything else — `#/`, `#/collection`, and anything unrecognised — is the carousel: the row IS the
+  // top level, as it is in the launcher.
+  return { kind: 'home' };
 }
 
 /** Structural comparison — the union's members are fresh objects on every parse, so `===` is always false. */
@@ -99,9 +88,7 @@ export function createRouter(): Router {
   const statusEl = req('status');
   const app = req('app');
 
-  const initial = parse(window.location.hash);
-  let route: Route = initial.route;
-  let wantsCollection = initial.wantsCollection;
+  let route: Route = parse(window.location.hash);
   // The entry screen's name line, owned by whoever resolves the slug against the feed.
   let gameName = '';
   let gameDocumentTitle: string | null = null;
@@ -109,8 +96,6 @@ export function createRouter(): Router {
   let sessionStatus = '';
   // The name the carousel is browsing over the landing page; null = the landing page's own copy.
   let browseName: string | null = null;
-  // Set once start() has run, so the toggles below can re-render through the same path a hashchange takes.
-  let notify: ((route: Route, collection: boolean) => void) | null = null;
   // Whether this session has pushed a history entry of its own. Without one, history.back() would leave
   // the site entirely — which is not what "step out of this game" means.
   let navigated = false;
@@ -172,19 +157,6 @@ export function createRouter(): Router {
       if (route.kind === 'home') render();
     },
 
-    setCollectionVisible(visible: boolean): void {
-      // Only home carries this bit: an entry screen is a place of its own, and `#/collection/<slug>`
-      // already names it. Nothing turns it OFF any more — the carousel is the top level and has nothing
-      // to step back to — but the setter stays: it is what re-shows the strip after an entry closes.
-      if (route.kind !== 'home') return;
-      if (visible === wantsCollection) return;
-      wantsCollection = visible;
-      history.replaceState(null, '', visible ? '#/collection' : '#/');
-      // replaceState fires no hashchange, so the listener that normally repaints never runs — tell the
-      // app ourselves, or the carousel would stay up with the address bar saying otherwise.
-      notify?.(route, wantsCollection);
-    },
-
     showCollection(): void {
       window.location.replace('#/collection');
     },
@@ -203,23 +175,21 @@ export function createRouter(): Router {
       window.location.hash = '#/collection';
     },
 
-    start(onChange: (next: Route, collection: boolean) => void): void {
-      notify = onChange;
+    start(onChange: (next: Route) => void): void {
       window.addEventListener('hashchange', () => {
         const next = parse(window.location.hash);
-        if (sameRoute(next.route, route) && next.wantsCollection === wantsCollection) return;
-        route = next.route;
-        wantsCollection = next.wantsCollection;
+        if (sameRoute(next, route)) return;
+        route = next;
         gameName = '';
         gameDocumentTitle = null;
         browseName = null;
         // NOT sessionStatus: a session belongs to an entry, not to the screen you happen to be on, and
         // main re-applies it for whatever the new screen is browsing (see applySession there).
         render();
-        onChange(route, wantsCollection);
+        onChange(route);
       });
       render();
-      onChange(route, wantsCollection);
+      onChange(route);
     },
   };
 }

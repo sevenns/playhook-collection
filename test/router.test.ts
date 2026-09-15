@@ -6,11 +6,8 @@ import { parse } from '../src/router.js';
 
 describe('parse', () => {
   it('reads an entry route from a well-formed hash', () => {
-    expect(parse('#/collection/tunic')).toEqual({
-      route: { kind: 'game', slug: 'tunic' },
-      wantsCollection: false,
-    });
-    expect(parse('#/collection/gta-vice-city-de').route).toEqual({
+    expect(parse('#/collection/tunic')).toEqual({ kind: 'game', slug: 'tunic' });
+    expect(parse('#/collection/gta-vice-city-de')).toEqual({
       kind: 'game',
       slug: 'gta-vice-city-de',
     });
@@ -19,7 +16,7 @@ describe('parse', () => {
   it.each(['', '#', '#/', '#/collection', '#/collection/', '#collection', 'collection'])(
     'treats %j as the carousel',
     (hash) => {
-      expect(parse(hash)).toEqual({ route: { kind: 'home' }, wantsCollection: true });
+      expect(parse(hash)).toEqual({ kind: 'home' });
     },
   );
 
@@ -33,13 +30,13 @@ describe('parse', () => {
     '#/collection/tun_ic',
     '#/collection/тuniс',
   ])('refuses %j as a slug and falls back to the carousel', (hash) => {
-    expect(parse(hash).route).toEqual({ kind: 'home' });
+    expect(parse(hash)).toEqual({ kind: 'home' });
   });
 
   it.each(['#/nonsense', '#/game/tunic', '#/collection/tunic/', '#//collection/tunic'])(
     'treats an unrecognised path %j as the carousel',
     (hash) => {
-      expect(parse(hash).route).toEqual({ kind: 'home' });
+      expect(parse(hash)).toEqual({ kind: 'home' });
     },
   );
 });
