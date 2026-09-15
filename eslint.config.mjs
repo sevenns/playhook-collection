@@ -18,7 +18,9 @@ export default tseslint.config(
     files: ['src/**/*.ts', 'scripts/**/*.mjs', 'test/**/*.ts'],
     languageOptions: {
       parserOptions: {
-        projectService: true,
+        // Two programs, as in `npm run typecheck`: the browser one (src/) and the Node one (scripts/,
+        // test/) — projectService would read only tsconfig.json and leave the Node half out.
+        project: ['./tsconfig.json', './tsconfig.node.json'],
         tsconfigRootDir: import.meta.dirname,
       },
     },
