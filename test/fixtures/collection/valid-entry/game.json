@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "valid-entry",
+  "title": "Valid Entry",
+  "executable": "Valid.exe",
+  "heroImage": ["assets/hero.webp"],
+  "gridImage": "assets/grid.webp",
+  "backgroundMusic": "assets/theme.ogg",
+  "genres": ["Test"],
+  "releaseDate": "2026-01-01",
+  "platforms": ["windows"],
+  "description": { "en": "A fixture." }
+}

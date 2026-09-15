@@ -13,10 +13,15 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
+    // For scripts/*.mjs: each carries `// @ts-check`, and the tests import collection-feed.mjs (which has
+    // no declarations) — without allowJs the typecheck fails on TS7016.
+    "allowJs": true,
     "isolatedModules": true,
-    "noEmit": true
+    "noEmit": true,
+    "types": ["node"]
   },
-  // Type-check ONLY config (noEmit) over the whole of src — the single typecheck gate. scripts/build.mjs
-  // is a Node script and stays outside this program on purpose (no @types/node dependency here).
-  "include": ["src/**/*.ts"]
+  // Type-check ONLY config (noEmit) over src, the Node scripts and the tests — the single typecheck
+  // gate. The scripts are the one piece of code whose failure breaks a deploy, which is why they are in
+  // here (with @types/node) rather than left to run-and-see.
+  "include": ["src/**/*.ts", "scripts/**/*.mjs", "test/**/*.ts"]
 }

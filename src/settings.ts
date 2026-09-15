@@ -83,7 +83,7 @@ function asName(value: unknown, allowed: readonly string[] | null): string | und
  * on their own schedule (see AudioOptions), and rejecting a name before the list is known would quietly
  * reset a perfectly good choice on every load.
  */
-function parseSettings(raw: unknown): SiteSettings {
+export function parseSettings(raw: unknown): SiteSettings {
   if (typeof raw !== 'object' || raw === null) return DEFAULT_SETTINGS;
   const source = raw as Record<string, unknown>;
   return {

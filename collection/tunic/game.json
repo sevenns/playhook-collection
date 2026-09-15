@@ -5,5 +5,5 @@
   "executable": "Tunic.exe",
   "heroImage": ["assets/hero-1.webp"],
   "gridImage": "assets/grid.webp",
-  "backgroundMusic": "assets/theme.mp3"
+  "backgroundMusic": "assets/theme.ogg"
 }

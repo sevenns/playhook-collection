@@ -15,6 +15,6 @@
     "assets/hero3.jpg"
   ],
   "gridImage": "assets/grid.webp",
-  "backgroundMusic": "assets/theme.mp3",
+  "backgroundMusic": "assets/theme.ogg",
   "launchTimeoutSec": 60
 }

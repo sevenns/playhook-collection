@@ -67,11 +67,14 @@ export function isValidSlug(slug: string): boolean {
 // Pages path prefix), but a string like "bloodborne/assets/hero1.jpg" taken out of the JSON and handed to
 // backgroundImage or new Audio() would ALSO resolve against the document — landing one directory short and
 // 404-ing every asset with a perfectly clean console. So every path from the feed goes through assetUrl(),
-// in exactly one place: the parser below.
-const FEED_BASE = new URL('api/v1/', document.baseURI);
-const FEED_INDEX = new URL('index.json', FEED_BASE);
+// in exactly one place: the parser below. Read when loadIndex runs, not when the module is imported: the
+// parser is pure (the base is handed in), and a test can import it without a document.
+const feedBase = (): URL => new URL('api/v1/', document.baseURI);
 
-const assetUrl = (path: string): string => new URL(path, FEED_BASE).href;
+/** What the generator stamps into index.json (`schemaVersion` in scripts/collection-feed.mjs). */
+export const FEED_SCHEMA_VERSION = 1;
+
+const assetUrl = (path: string, base: URL): string => new URL(path, base).href;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -113,8 +116,11 @@ const asDescription = (value: unknown): EntryDescription | null => {
   };
 };
 
-/** Parses one raw entry, or returns null if it doesn't carry the fields the UI needs. */
-function parseEntry(raw: unknown): CollectionEntry | null {
+/**
+ * Parses one raw entry, or returns null if it doesn't carry the fields the UI needs. `base` is the feed
+ * directory every path in the entry is relative to (see feedBase).
+ */
+export function parseEntry(raw: unknown, base: URL): CollectionEntry | null {
   if (!isRecord(raw)) return null;
   const slug = asString(raw['slug']);
   const title = asString(raw['title']);
@@ -124,7 +130,7 @@ function parseEntry(raw: unknown): CollectionEntry | null {
   if (Array.isArray(raw['heroUrls'])) {
     for (const item of raw['heroUrls']) {
       const path = asString(item);
-      if (path !== null) heroUrls.push(assetUrl(path));
+      if (path !== null) heroUrls.push(assetUrl(path, base));
     }
   }
 
@@ -143,10 +149,10 @@ function parseEntry(raw: unknown): CollectionEntry | null {
     ...(typeof steamAppId === 'number' ? { steamAppId } : {}),
     updatedAt: asString(raw['updatedAt']) ?? '',
     sourcePath: asString(raw['sourcePath']) ?? `collection/${slug}`,
-    manifestUrl: assetUrl(asString(raw['manifestUrl']) ?? `${slug}/game.json`),
+    manifestUrl: assetUrl(asString(raw['manifestUrl']) ?? `${slug}/game.json`, base),
     heroUrls,
-    ...(gridUrl !== null ? { gridUrl: assetUrl(gridUrl) } : {}),
-    music: music !== null ? assetUrl(music) : null,
+    ...(gridUrl !== null ? { gridUrl: assetUrl(gridUrl, base) } : {}),
+    music: music !== null ? assetUrl(music, base) : null,
     ...(genres !== null ? { genres } : {}),
     ...(releaseDate !== null ? { releaseDate } : {}),
     ...(platforms !== null ? { platforms } : {}),
@@ -155,22 +161,36 @@ function parseEntry(raw: unknown): CollectionEntry | null {
 }
 
 /**
- * Fetches and parses the catalogue. Rejects on a network failure or unparseable JSON — the caller turns
- * that into the list's `Collection unavailable` state. An entry that fails to parse is dropped rather
- * than failing the whole load: the feed is generated and schema-checked at build time, so this branch is
- * purely defensive against a future shape change.
+ * Parses the whole index. Throws on a payload that is not this feed — no `entries`, or a `schemaVersion`
+ * other than the one this parser was written against: a feed that changed shape underneath the site
+ * should say so as "Collection unavailable", not as a catalogue that quietly parsed down to nothing. An
+ * entry that fails to parse on its own is dropped rather than failing the whole load: the feed is
+ * generated and schema-checked at build time, so that branch is purely defensive.
  */
-export async function loadIndex(): Promise<readonly CollectionEntry[]> {
-  const response = await fetch(FEED_INDEX.href, { cache: 'no-cache' });
-  if (!response.ok) throw new Error(`feed request failed: ${response.status}`);
-  const payload: unknown = await response.json();
+export function parseIndex(payload: unknown, base: URL): readonly CollectionEntry[] {
   if (!isRecord(payload) || !Array.isArray(payload['entries'])) {
     throw new Error('feed is missing an `entries` array');
   }
+  if (payload['schemaVersion'] !== FEED_SCHEMA_VERSION) {
+    throw new Error(
+      `feed schemaVersion is ${String(payload['schemaVersion'])}, this site reads ${FEED_SCHEMA_VERSION}`,
+    );
+  }
   const entries: CollectionEntry[] = [];
   for (const raw of payload['entries']) {
-    const entry = parseEntry(raw);
+    const entry = parseEntry(raw, base);
     if (entry !== null) entries.push(entry);
   }
   return entries;
+}
+
+/**
+ * Fetches and parses the catalogue. Rejects on a network failure, unparseable JSON or a feed of another
+ * shape (see parseIndex) — the caller turns that into the list's `Collection unavailable` state.
+ */
+export async function loadIndex(): Promise<readonly CollectionEntry[]> {
+  const base = feedBase();
+  const response = await fetch(new URL('index.json', base).href, { cache: 'no-cache' });
+  if (!response.ok) throw new Error(`feed request failed: ${response.status}`);
+  return parseIndex(await response.json(), base);
 }

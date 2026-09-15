@@ -20,7 +20,7 @@ carry 1:1 — so every file below still matches 0.8.1 unless its own header name
 | `src/focus-jelly.ts` | `src/renderer/focus-jelly.ts` | 1:1 |
 | `src/index-math.ts`, `src/entrance.ts`, `src/nav-surface.ts`, `src/hover-guard.ts` | same names | 1:1 |
 | `src/screen-scroller.ts` | `src/renderer/screen-scroller.ts` | 1:1 minus its `pxUnit` (see `src/px-unit.ts` below) |
-| `src/screen-sidebar.ts` | `src/renderer/screen-sidebar.ts` | 1:1 but for one line — the column of sections + actions both screens are built around. Where the launcher swallows a press on a disabled action (`return`), the site plays `limit`: "inert = the limit sound" is the site's convention everywhere else (the pad's dead ends, the inert rows of the pane), and a silent sidebar would be its one exception |
+| `src/screen-sidebar.ts` | `src/renderer/screen-sidebar.ts` | 1:1 but for one line (its header says `Ported from`, not `Ported 1:1`, so `check:ported` does not hold it to the byte) — the column of sections + actions both screens are built around. Where the launcher swallows a press on a disabled action (`return`), the site plays `limit`: "inert = the limit sound" is the site's convention everywhere else (the pad's dead ends, the inert rows of the pane), and a silent sidebar would be its one exception |
 | `src/system-cards.ts`, `src/system-card-icons.ts` | same names | the launcher carries four cards (Library / Notifications / Settings / System); the site carries three of them — see below. The icons set `fill-rule` on the `<svg>` once, where the launcher sets `fill-rule` + `clip-rule` on each `<path>`; same rendering, one attribute fewer |
 | `src/library-grid.ts` | `src/renderer/library-grid.ts` | geometry and stepping 1:1; the SECTIONS are the site's own (see below) |
 | `src/library-screen.ts` | `src/renderer/library-screen.ts` | ported; its artwork machinery is not (there a cover is a data URL main generates on first sight, so the screen needs a bounded cache with a request queue and an eviction callback — here a cover is a URL and the browser's cache is that cache). The row window, the FLIP re-flow, the section arrival, the focus body, the sidebar and the six primitives all come across |
@@ -28,14 +28,14 @@ carry 1:1 — so every file below still matches 0.8.1 unless its own header name
 | `src/settings-form-model.ts` | same name | every section and every row, in the launcher's order, with its labels and hints. Only the Audio rows are live — see below |
 | `src/settings-form-view.ts` | `src/renderer/row-view-core.ts` + the Settings half of `settings-form-view.ts` | the row kinds this screen uses (toggle / select / slider / text / note / update-status), i18n resolved away. The launcher shares the core with its Customize screen; here the site's Customize has row kinds of its own (text and a file picker), so there is nothing to share |
 | `src/settings.ts` | `src/main/app-settings.ts` + its IPC | the fields the page can act on, and `localStorage` in place of `settings.json`; `LAUNCHER_DEFAULTS` carries the rest as frozen values for the rows that only display them. `DEFAULT_SETTINGS` is the launcher's own |
-| `public/ambience/*.ogg` | `audio/ambience/*.mp3` | all eleven of the launcher's 0.8.0 tracks, re-encoded to Vorbis: `ffmpeg -i <track>.mp3 -c:a libvorbis -q:a 4 <track>.ogg`. The extension is dropped from the stored name (the launcher keeps `playhook-abyss.mp3`, the site keeps `playhook-abyss`) |
+| `public/ambience/*.ogg` | `audio/ambience/*.mp3` | all eleven of the launcher's 0.8.0 tracks, re-encoded to Vorbis: `ffmpeg -i <track>.mp3 -c:a libvorbis -q:a 4 <track>.ogg` — except the four that ran past 3 MB at that quality (`ps2`, `ps3`, `xbox`, `steam-big-picture`), which are `-q:a 2` from the same sources, the collection's own ceiling for a track. The extension is dropped from the stored name (the launcher keeps `playhook-abyss.mp3`, the site keeps `playhook-abyss`) |
 | `src/osk.ts`, `src/osk-text.ts` | `src/renderer/osk.ts`, `src/renderer/osk-text.ts` | 1:1, with the launcher's English labels inlined where it reads its i18n layer, and the clipboard read through the browser rather than main |
 | `src/game-settings-screen.ts` | `src/renderer/game-settings-screen.ts` | the column, the pane, the preview debounce, the entrance, the hover guard, the discard question and the six primitives. Its manifest machinery does not come across: there is no file to serialize, no validator in another process and no list/number editing surface, because every row that would need one is inert here |
 | `src/game-settings-model.ts` | same name | every section and every DATA row of the launcher's form, in its order, with its labels, hints, placeholders and its untouched defaults; the action rows (Find online / Save / Reset / Move to card / Delete / Close) are not carried — the screen builds its own three (Find online / Add / Close). Only five rows are live — see below |
 | `src/row-view-core.ts` | same name | the row vocabulary both list screens share (toggle / select / slider / text / number / path / list / note), i18n resolved away, and the launcher's `disabled` renamed `inert` — same treatment, and the site says why |
 | `src/sfx-limit.ts` | `src/renderer/sfx-limit.ts` | 1:1, taken from `070b279` (`release/v0.9.0`) where the docblock's `HOLD_DELAY_MS` figure was corrected to 175 |
 | `src/px-unit.ts` | `src/renderer/screen-scroller.ts` (`pxUnit`) | rewritten: the launcher multiplies the vh number out of `--px`; this site's `--px` is a `min()` with a media override, which an unregistered custom property never resolves, so the unit is measured off a probe element instead |
-| `src/carousel.ts` | `src/renderer/carousel.ts` | ported; the artwork cache and `artRev` are gone (a cover is a plain URL here and the browser's cache is the cache), the launcher's own system cards are in (three of its four — see below), the dot's `.shows-dot`/`.is-busy` states are only entered for a running session, and a third screen value — `home`, the bare landing page — joins `carousel`/`detail`. The focus body, `MoveResult`, `setFlipping`, the `.is-beyond` window and the `data-returning` fan are all in |
+| `src/carousel.ts` | `src/renderer/carousel.ts` | ported; the artwork cache and `artRev` are gone (a cover is a plain URL here and the browser's cache is the cache), the launcher's own system cards are in (three of its four — see below), the dot's `.shows-dot`/`.is-busy` states are only entered for a running session, and a third screen value — `empty`, a row with fewer than two cards to flip through — joins `carousel`/`detail`. The focus body, `MoveResult`, `setFlipping`, the `.is-beyond` window and the `data-returning` fan are all in |
 | `src/hero.ts` | `src/renderer/hero.ts` | rotation, palette cache, wallpaper fallback, the `#hero-pan` parallax and the SWAP SCHEDULER (settle 120 ms, no fade over a fade still burning, `setFlipping` holds the picture) all ported; the HeroDeps seam is gone, and every image is preloaded before it is handed to the scheduler, because it arrives over the network rather than as a data URL |
 | `src/index.html` | `src/renderer/index.html` | trimmed: Play but no gear/loader, no info/confirm/error/power views, no `data-i18n`; CSP and copy retargeted; Github added; the popup's two-layer veil and the strip's jelly canvas are in |
 | `src/styles.css` | `src/renderer/styles.css` | trimmed + browser fixes, each marked `BROWSER:` in place; TextButton padding follows Figma (13) rather than the launcher (32) |
@@ -43,7 +43,7 @@ carry 1:1 — so every file below still matches 0.8.1 unless its own header name
 | `src/audio.ts` | `src/renderer/audio.ts` | SFX written fresh (the `limit` latch is the launcher's); the music crossfade engine ported 1:1 minus the CARD source layer and the startup jingle, plus an autoplay unlock the launcher does not need. `setBrowseMusic(url, idle)`, the ambience channel, the "only global ambience" override and the two volumes are all the launcher's |
 | `src/stats.ts` | `src/renderer/app.ts` (`buildInfoPanel`) + `src/renderer/format.ts` | the panel's SHAPE and its formatters; the numbers themselves are invented (see below) |
 | `src/session.ts` | `src/main/` game controller + `src/renderer/state-view.ts` | only the SHAPE: the phase names, the status strings and the busy-visual mapping. Nothing is launched — see below |
-| `src/main.ts` | `src/renderer/app.ts` | only the wiring tail survives; every `window.api` subscription is replaced by one fetch of the collection feed. The flip settle window (`FLIP_SETTLE_MS`) and the deferred title swap are its |
+| `src/main.ts`, `src/boot.ts` | `src/renderer/app.ts` | only the wiring tail survives; every `window.api` subscription is replaced by one fetch of the collection feed. The flip settle window (`FLIP_SETTLE_MS`) and the deferred title swap are its; the boot sequence (the wallpaper hold, the jingle, the two seeds and the reveal) is the launcher's, in a file of its own |
 | `src/preload.ts` | — | new; the launcher's heroes are data URLs and never need preloading |
 | `src/router.ts` | — | new; the launcher has no routes |
 | `src/collection.ts` | — | new; the launcher has no feed to read (0.8.0 takes its metadata straight from the stores — see README) |
@@ -51,13 +51,34 @@ carry 1:1 — so every file below still matches 0.8.1 unless its own header name
 | `public/favicon.png` | `assets/icon.png` | 1:1 |
 | `public/sfx/<set>/*.ogg` | `audio/ui/<set>/*.wav` | all eighteen of the launcher's 0.8.0 sets, re-encoded to Vorbis: `ffmpeg -i <slot>.wav -c:a libvorbis -q:a 2 -ar 48000 <slot>.ogg` for the eight slots the site plays (`play`, `move`, `button`, `back`, `limit`, `popup-open`, `popup-close`, `typing`). `notify` is not shipped — nothing here notifies |
 | `public/fonts/*.woff2` | `src/renderer/fonts/*.ttf` | **not** the same files — Google Fonts' latin woff2 subsets (96 KB total vs 13.7 MB of CJK TTF); the four `.`/`…` overrides that hand those two glyphs to the fallback font are copied |
-| `eslint.config.mjs`, `.prettierrc.json`, `tsconfig.json` | same names | copied; `types: ["node"]` and the `release/**` ignore dropped, the `test/**` block skipped (there are no tests here) |
+| `eslint.config.mjs`, `.prettierrc.json`, `tsconfig.json`, `vitest.config.ts` | same names | copied; the `release/**` ignore and the `electron` alias dropped, `scripts/**` linted and typechecked rather than ignored (a broken script is a broken deploy here), no `happy-dom` (the modules under test never touch the DOM at import time) |
 
 ## Keeping up with drift
 
 The launcher will keep evolving and this copy will not follow automatically. That is fine — this is a
 showcase, not a second launcher, and a stale button radius harms nobody. When the two do need to be
 reconciled, diff against the commit above and then update it here.
+
+The table above is a set of promises, and `scripts/check-ported.mjs` is what checks them — run it
+**before** every reconcile, and again after:
+
+```bash
+PLAYHOOK_DIR=../playhook npm run check:ported
+```
+
+It compares every file whose first line is a `Ported 1:1 from playhook @ <sha> : <path>` header with
+the upstream file at the commit that header names (each file pins its own — `dominant-color.ts` and
+`sfx-limit.ts` sit on different commits from the rest), byte for byte once the header is dropped, and
+re-dumps `manifestJsonSchema()` from the launcher's built `dist/main/manifest.js` to compare with
+`schema/game.schema.json` (the recipe in `schema/SOURCE.md`, run rather than remembered). A file that
+diverges fails the run: either re-copy it, or — where the divergence is the point, as with
+`screen-sidebar.ts` — demote its header to plain `Ported from` and record the difference in the table
+above. It also says which upstream files have moved since their pinned commit; that is what a reconcile
+starts from.
+
+It runs **locally only**: playhook is `private: true`, so the deploy workflow has no checkout to compare
+against and does not run it. The check is opt-in by construction, which is why the table stays the
+record of truth and the script stays the way to verify it.
 
 Every deliberate divergence in the CSS carries a `BROWSER:` comment explaining what the launcher does
 and why a public web page cannot.

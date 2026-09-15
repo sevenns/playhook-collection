@@ -48,26 +48,37 @@ npm run dev        # build, then serve dist/ on :8000 with a watcher
 Note that the watcher rebuilds the bundle only; `index.html` and `styles.css` are copied by
 `scripts/build.mjs`, so re-run the build after editing them.
 
-Gates, both run in CI before deploy:
+Gates, all run in CI before deploy:
 
 ```bash
-npm run typecheck && npm run lint
+npm run typecheck && npm run lint && npm test
 ```
 
-There are no tests. The launcher keeps the vitest suite for the parts that actually decide things; here
-the gates are typecheck, lint, a build that validates every manifest, and looking at the screens.
+One more check runs only by hand, because it needs a local checkout of the launcher (a private
+repository, so CI has none): `PLAYHOOK_DIR=../playhook npm run check:ported` holds every file that
+claims to be a 1:1 copy to that claim, and the schema to its dump. Run it before reconciling with a newer
+Playhook — see [PORTED-FROM.md](PORTED-FROM.md), "Keeping up with drift".
+
+The tests (vitest, `test/`) cover the parts that actually decide something without a screen to look
+at: the hash parser (`router.ts` — the one place the address bar becomes a route), the feed and settings
+parsers (`collection.ts`, `settings.ts` — what a changed feed or a stale `localStorage` turns into), the
+invented statistics (`stats.ts` — the same figures every time), and the feed generator itself
+(`scripts/collection-feed.mjs`, on a fixture entry under `test/fixtures/` — every fail-gate, because a
+failed build is what it produces). The screens are still checked by looking at them; the typecheck and
+lint reach `scripts/` too, since a broken script is a broken deploy.
 
 ## Adding a collection entry
 
 Read [collection/README.md](collection/README.md) first. In short: create `collection/<slug>/` with
 `game.json`, `meta.json` and an `assets/` directory, keep the assets web-sized (they are downloaded by
 anyone who opens the preview), and drop the entry on a card and insert it into Playhook before claiming
-it works. `npm run build` validates every manifest against `schema/game.schema.json` and fails on a bad
-one, so a broken entry never reaches the feed.
+it works. `npm run build` validates every manifest against `schema/game.schema.json` and every
+`meta.json` against `schema/meta.schema.json`, and fails on a bad one, so a broken entry never reaches
+the feed.
 
 ## Deploy
 
-Pushing to `main` runs typecheck → lint → build and publishes `dist/` to GitHub Pages
+Pushing to `main` runs typecheck → lint → test → build and publishes `dist/` to GitHub Pages
 (`.github/workflows/deploy.yml`). Pages must be set to "GitHub Actions" as its source in the repository
 settings.
 

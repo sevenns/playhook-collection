@@ -2,8 +2,9 @@
 // which is what the Pages workflow uploads. Deliberately not a framework — the whole site is one HTML
 // file, one stylesheet and one bundle.
 //
-// Not typechecked by tsconfig.json (it is a Node script, and this package has no @types/node); `npm run
-// typecheck` covers src/ only.
+// Typechecked with the rest (tsconfig.json includes scripts/**/*.mjs, with @types/node) — a failure here
+// is a failed deploy, so it is not left to run-and-see.
+// @ts-check
 import { cp, mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
