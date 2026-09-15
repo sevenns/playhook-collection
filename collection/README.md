@@ -32,13 +32,16 @@ collection/
 
 `steamAppId`, `notes` and `preview` are optional; the rest are not. `verifiedAt` is the date somebody
 actually ran the manifest — not the date the file was committed, and it is what the feed publishes as
-`updatedAt`.
+`updatedAt`; a calendar date, `YYYY-MM-DD`. The whole file is held to
+[../schema/meta.schema.json](../schema/meta.schema.json) — hand-written, unlike the manifest's schema,
+because this file has no upstream — and the build fails on anything it refuses: a missing `author`, a
+`verifiedAt` that is not a date, a `steamAppId` that is not a whole number, a key it does not know.
 
 `tested` names the systems the manifest was actually run on, and it takes Node's own `process.platform`
 values — **`win32`**, **`linux`**, **`darwin`** (that last one is macOS). Not the words the launcher uses
-internally for the same thing: `meta.json` never reaches it. The build fails on anything else, because
-`tested` is not published to the feed — it is here for whoever reads the repository, so a typo would go
-unnoticed until somebody opened the file.
+internally for the same thing: `meta.json` never reaches it. The schema fails the build on anything else,
+because `tested` is not published to the feed — it is here for whoever reads the repository, so a typo
+would go unnoticed until somebody opened the file.
 
 **`preview` is what the site shows**, listed explicitly rather than read out of the manifest. The
 manifest is a file for somebody's card: its paths are card-relative and it references things the site has
@@ -137,8 +140,9 @@ them against `…/api/v1/` explicitly; dropping such a string straight into an `
 from `/playhook-collection/` resolves one directory short and 404s with a clean console.
 
 The generator is `scripts/collection-feed.mjs`, run from `scripts/build.mjs`. It validates every
-`game.json` against `../schema/game.schema.json` and **fails the build** on a schema error or a
-slug outside `[a-z0-9-]+` — an entry that silently vanishes from the feed is diagnosed painfully. The
+`game.json` against `../schema/game.schema.json`, every `meta.json` against `../schema/meta.schema.json`,
+and **fails the build** on a schema error or a slug outside `[a-z0-9-]+` — an entry that silently
+vanishes from the feed is diagnosed painfully. The
 whole `assets/` directory is copied, not just what `preview` names: that directory is also what a human
 drops on their card, and the manifest points at files the site never opens. It also enforces what the
 schema cannot: more than three `heroImage` entries, a leftover `sounds` block, or a `pc` block, fail

@@ -44,16 +44,26 @@ const exists = async (path) => {
 const readJson = async (path) => JSON.parse(await readFile(path, 'utf8'));
 
 /**
- * Compiles the launcher's own manifest schema. It is a `oneOf` of [single manifest, array of manifests];
- * the nested `$schema` on the first branch is what pins it to draft 2020-12, so Ajv2020 is the right
- * dialect. `strict: false` because that nested keyword is not where a 2020-12 resource root belongs and
- * strict mode rejects it — the schema is generated (see schema/SOURCE.md), so it is not ours to reshape.
+ * Compiles both schemas with one Ajv. The launcher's manifest schema is a `oneOf` of [single manifest,
+ * array of manifests]; the nested `$schema` on the first branch is what pins it to draft 2020-12, so
+ * Ajv2020 is the right dialect. `strict: false` because that nested keyword is not where a 2020-12
+ * resource root belongs and strict mode rejects it — the schema is generated (see schema/SOURCE.md), so
+ * it is not ours to reshape. meta.schema.json is hand-written (collection/README.md is its contract) and
+ * needs no such allowance, but one instance with one setting is simpler than two.
  */
-async function compileManifestValidator(root) {
-  const schema = await readJson(join(root, 'schema', 'game.schema.json'));
-  const ajv = new Ajv2020.default({ strict: false, allErrors: true });
-  return ajv.compile(schema);
+async function compileValidators(root) {
+  const ajv = new Ajv2020({ strict: false, allErrors: true });
+  return {
+    manifest: ajv.compile(await readJson(join(root, 'schema', 'game.schema.json'))),
+    meta: ajv.compile(await readJson(join(root, 'schema', 'meta.schema.json'))),
+  };
 }
+
+/** Ajv's errors as one line: `/path message; /path message`. */
+const describeErrors = (validate) =>
+  (validate.errors ?? [])
+    .map((e) => `${e.instancePath === '' ? '/' : e.instancePath} ${e.message}`)
+    .join('; ');
 
 /**
  * A manifest is `oneOf` [one game, an array of games] — the schema says so, and every gate below has to
@@ -69,13 +79,6 @@ const heroesOf = (game) =>
     : typeof game.heroImage === 'string'
       ? [game.heroImage]
       : [];
-
-/**
- * The platforms `tested` may name — Node's own `process.platform` values, which is the vocabulary every
- * entry in this repository already uses. Not the launcher's `HostPlatform` ('windows' / 'linux' /
- * 'macos'): that one is internal to its renderer, and meta.json never reaches it.
- */
-const TESTED_PLATFORMS = ['win32', 'linux', 'darwin'];
 
 /**
  * Derives a preview block from the manifest when meta.json has none. A fallback for typical entries,
@@ -193,7 +196,7 @@ export async function buildCollectionFeed(root, dist) {
   const outDir = join(dist, 'api', 'v1');
   await mkdir(outDir, { recursive: true });
 
-  const validateManifest = await compileManifestValidator(root);
+  const validate = await compileValidators(root);
 
   const dirents = (await exists(source)) ? await readdir(source, { withFileTypes: true }) : [];
   const entries = [];
@@ -216,11 +219,10 @@ export async function buildCollectionFeed(root, dist) {
     }
 
     const manifest = await readJson(manifestPath);
-    if (!validateManifest(manifest)) {
-      const detail = (validateManifest.errors ?? [])
-        .map((e) => `${e.instancePath === '' ? '/' : e.instancePath} ${e.message}`)
-        .join('; ');
-      throw new Error(`collection/${slug}/game.json fails schema/game.schema.json: ${detail}`);
+    if (!validate.manifest(manifest)) {
+      throw new Error(
+        `collection/${slug}/game.json fails schema/game.schema.json: ${describeErrors(validate.manifest)}`,
+      );
     }
     gateManifest(manifest, slug);
 
@@ -228,27 +230,16 @@ export async function buildCollectionFeed(root, dist) {
     if (!(await exists(metaPath))) {
       throw new Error(`collection/${slug}: meta.json is missing (title/verifiedAt live there)`);
     }
+    // The whole of meta.json is held to schema/meta.schema.json, and a red build on a typo is the point:
+    // most of what it says (`author`, `tested`, a misspelled key) is for the people reading this
+    // repository, never published, so nothing downstream would ever notice a stray "macos" or a
+    // `verifiedAt` that is not a date — it would sit there being quietly wrong for as long as nobody
+    // opened the file.
     const meta = await readJson(metaPath);
-    if (typeof meta.title !== 'string' || meta.title.length === 0) {
-      throw new Error(`collection/${slug}/meta.json: "title" is required`);
-    }
-    if (typeof meta.verifiedAt !== 'string' || meta.verifiedAt.length === 0) {
-      throw new Error(`collection/${slug}/meta.json: "verifiedAt" is required`);
-    }
-    if (!Array.isArray(meta.tested) || meta.tested.length === 0) {
+    if (!validate.meta(meta)) {
       throw new Error(
-        `collection/${slug}/meta.json: "tested" is required (see collection/README.md)`,
+        `collection/${slug}/meta.json fails schema/meta.schema.json: ${describeErrors(validate.meta)}`,
       );
-    }
-    // A red build on a typo, because nothing downstream would ever notice one: `tested` is for the
-    // people reading this repository — it is not published to the feed — so a stray "macos" or "osx"
-    // would sit there being quietly wrong for as long as nobody opened the file.
-    for (const platform of meta.tested) {
-      if (!TESTED_PLATFORMS.includes(platform)) {
-        throw new Error(
-          `collection/${slug}/meta.json: "tested" has ${JSON.stringify(platform)} — expected one of ${TESTED_PLATFORMS.join(', ')}`,
-        );
-      }
     }
 
     const declaredPreview =

@@ -67,8 +67,9 @@ the gates are typecheck, lint, a build that validates every manifest, and lookin
 Read [collection/README.md](collection/README.md) first. In short: create `collection/<slug>/` with
 `game.json`, `meta.json` and an `assets/` directory, keep the assets web-sized (they are downloaded by
 anyone who opens the preview), and drop the entry on a card and insert it into Playhook before claiming
-it works. `npm run build` validates every manifest against `schema/game.schema.json` and fails on a bad
-one, so a broken entry never reaches the feed.
+it works. `npm run build` validates every manifest against `schema/game.schema.json` and every
+`meta.json` against `schema/meta.schema.json`, and fails on a bad one, so a broken entry never reaches
+the feed.
 
 ## Deploy
 
