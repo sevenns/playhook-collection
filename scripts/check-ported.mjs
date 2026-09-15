@@ -15,8 +15,11 @@
 //      fails the run; the fix is either to re-copy it or to demote its header to plain `Ported from`
 //      and record the divergence in the ledger, as screen-sidebar.ts does.
 //   2. schema/game.schema.json is compared with a fresh dump of `manifestJsonSchema()` from the
-//      launcher's built main (`dist/main/manifest.js` — `npm run build:main` there first). That is the
-//      recipe in schema/SOURCE.md, run rather than remembered.
+//      launcher's built main (`dist/main/manifest.js` — `npm run build:main` there first, and LAST: the
+//      launcher's `build:renderer` overwrites `dist/shared` with ESM that the CommonJS main cannot
+//      load, and `npm run build` there runs the two in that order). That is the recipe in
+//      schema/SOURCE.md, run rather than remembered; a dump that cannot be taken is a failure like any
+//      other, reported by name.
 //
 // It also says, per file, whether the upstream file has moved since the pinned commit — informational
 // only: drift is expected (this is a showcase, not a second launcher), and which files moved is exactly
@@ -28,7 +31,7 @@ import { createRequire } from 'node:module';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const HEADER_RE = /^\/\/ Ported 1:1 from playhook @ ([0-9a-f]+)\b[^:\n]*: (\S+)$/m;
+export const HEADER_RE = /^\/\/ Ported 1:1 from playhook @ ([0-9a-f]+)\b[^:\n]*: (\S+)$/m;
 
 /**
  * @typedef {object} PortedFile
@@ -68,23 +71,23 @@ export async function findPortedFiles(root) {
   return ported;
 }
 
+/** The header's second line, the same in every ported file: the one line that follows the pin. */
+const HEADER_TAIL_RE = /^\/\/ Do not diverge without reason/;
+
 /**
- * The site file minus its header: the leading run of `//` lines that the upstream file does not have.
- * Both files open with a comment block (upstream's own docblock follows the header directly, with no
- * blank line between), so the header's length is the difference in their lengths — two lines for most
- * files, more where the sentence ran on. Never less than one: the first line is the header by definition.
+ * The site file minus its header: the `Ported 1:1` line and the `Do not diverge` line(s) after it —
+ * the two lines the ledger prescribes, and nothing else. Any other line the site adds before the
+ * upstream text, a comment included, stays in and shows up as a difference: the header is defined by
+ * its shape, not by how many `//` lines the upstream file happens to open with (an upstream file that
+ * opens with code would otherwise let any number of site comments pass as "header").
  * @param {string} site
- * @param {string} upstream
  */
-export function stripHeader(site, upstream) {
-  const leading = (/** @type {string} */ text) => {
-    const lines = text.split('\n');
-    let n = 0;
-    while (n < lines.length && lines[n]?.startsWith('//') === true) n += 1;
-    return n;
-  };
-  const headerLines = Math.max(1, leading(site) - leading(upstream));
-  return site.split('\n').slice(headerLines).join('\n');
+export function stripHeader(site) {
+  const lines = site.split('\n');
+  let headerLines = 1;
+  while (headerLines < lines.length && HEADER_TAIL_RE.test(lines[headerLines] ?? ''))
+    headerLines += 1;
+  return lines.slice(headerLines).join('\n');
 }
 
 /**
@@ -109,7 +112,11 @@ export function firstDifference(a, b) {
  * @param {string[]} args
  */
 function git(playhookDir, args) {
-  return execFileSync('git', ['-C', playhookDir, ...args], { encoding: 'utf8' });
+  // git's own `fatal:` goes nowhere: the caller reports a failed lookup on one line of its own.
+  return execFileSync('git', ['-C', playhookDir, ...args], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
 }
 
 /**
@@ -172,7 +179,7 @@ export async function checkPorted(root, playhookDir) {
       console.error(`✗ ${file.file}: ${file.upstreamPath} is not at ${file.sha} in ${playhookDir}`);
       continue;
     }
-    const site = stripHeader(file.text, upstream);
+    const site = stripHeader(file.text);
     const difference = firstDifference(site, upstream);
     const moved = movedUpstream(playhookDir, file) ? ' (upstream has moved since — drift)' : '';
     if (difference === null) {
@@ -191,7 +198,15 @@ export async function checkPorted(root, playhookDir) {
 
   const schemaPath = join(root, 'schema', 'game.schema.json');
   const committed = await readFile(schemaPath, 'utf8');
-  const dumped = dumpSchema(playhookDir);
+  let dumped;
+  try {
+    dumped = dumpSchema(playhookDir);
+  } catch (error) {
+    console.error(
+      `✗ schema/game.schema.json: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return failures + 1;
+  }
   if (dumped === committed) {
     console.log(`✓ schema/game.schema.json = manifestJsonSchema() from ${playhookDir}`);
   } else {
