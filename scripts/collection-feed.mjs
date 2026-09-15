@@ -409,14 +409,18 @@ export async function buildCollectionFeed(root, dist) {
     // Warn, don't fail: the preview and the manifest "are allowed to differ" (collection/README.md), and
     // a degraded preview is not worth a red build. Checked on what meta.json DECLARES — verifyPreview
     // drops missing files below and would hide a fourth entry that simply isn't there.
-    if (Array.isArray(declaredPreview.hero) && declaredPreview.hero.length > MAX_HERO_IMAGES) {
+    const heroCount = Array.isArray(declaredPreview.hero) ? declaredPreview.hero.length : 0;
+    if (heroCount > MAX_HERO_IMAGES) {
       console.warn(
-        `  ! ${slug}: preview declares ${declaredPreview.hero.length} hero images — showing the first ${MAX_HERO_IMAGES}, like the launcher`,
+        `  ! ${slug}: preview declares ${heroCount} hero images — showing the first ${MAX_HERO_IMAGES}, like the launcher`,
       );
-      declaredPreview.hero = declaredPreview.hero.slice(0, MAX_HERO_IMAGES);
     }
+    const shownPreview =
+      Array.isArray(declaredPreview.hero) && heroCount > MAX_HERO_IMAGES
+        ? { ...declaredPreview, hero: declaredPreview.hero.slice(0, MAX_HERO_IMAGES) }
+        : declaredPreview;
 
-    const preview = await verifyPreview(declaredPreview, entryDir, slug);
+    const preview = await verifyPreview(shownPreview, entryDir, slug);
     await gatePreviewSizes(preview, entryDir, slug);
     await warnMissingManifestAssets(manifest, entryDir, slug);
 

@@ -213,9 +213,10 @@ describe('buildCollectionFeed', () => {
   });
 
   describe('size gates', () => {
-    const env = { ...process.env };
+    // Delete rather than reassign: `process.env` is Node's environment proxy, and replacing the object
+    // leaves the worker with a plain copy for every later test.
     afterEach(() => {
-      process.env = { ...env };
+      delete process.env['PHC_MAX_GRID_KB'];
     });
 
     it('warns above the limit and fails above three times it', async () => {

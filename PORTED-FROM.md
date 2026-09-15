@@ -28,7 +28,7 @@ carry 1:1 — so every file below still matches 0.8.1 unless its own header name
 | `src/settings-form-model.ts` | same name | every section and every row, in the launcher's order, with its labels and hints. Only the Audio rows are live — see below |
 | `src/settings-form-view.ts` | `src/renderer/row-view-core.ts` + the Settings half of `settings-form-view.ts` | the row kinds this screen uses (toggle / select / slider / text / note / update-status), i18n resolved away. The launcher shares the core with its Customize screen; here the site's Customize has row kinds of its own (text and a file picker), so there is nothing to share |
 | `src/settings.ts` | `src/main/app-settings.ts` + its IPC | the fields the page can act on, and `localStorage` in place of `settings.json`; `LAUNCHER_DEFAULTS` carries the rest as frozen values for the rows that only display them. `DEFAULT_SETTINGS` is the launcher's own |
-| `public/ambience/*.ogg` | `audio/ambience/*.mp3` | all eleven of the launcher's 0.8.0 tracks, re-encoded to Vorbis: `ffmpeg -i <track>.mp3 -c:a libvorbis -q:a 4 <track>.ogg` — except the four that ran past 3 MB at that quality (`ps2`, `ps3`, `xbox`, `steam-big-picture`), which are `-q:a 2` from the same sources, the collection's own ceiling for a track. The extension is dropped from the stored name (the launcher keeps `playhook-abyss.mp3`, the site keeps `playhook-abyss`) |
+| `public/ambience/*.ogg` | `audio/ambience/*.mp3` | all eleven of the launcher's 0.8.0 tracks, re-encoded to Vorbis: `ffmpeg -i <track>.mp3 -c:a libvorbis -q:a 4 <track>.ogg` — except the four that ran past 3 MB at that quality (`ps2`, `ps3`, `xbox`, `steam-big-picture`), which are `-q:a 2` from the same sources. `ps3` (6 min) and `steam-big-picture` (15 min) stay above 3 MB even so — that is their length, and the collection's 3 MB ceiling is a gate on an entry's `theme` track (`scripts/collection-feed.mjs`), not on this directory. The extension is dropped from the stored name (the launcher keeps `playhook-abyss.mp3`, the site keeps `playhook-abyss`) |
 | `src/osk.ts`, `src/osk-text.ts` | `src/renderer/osk.ts`, `src/renderer/osk-text.ts` | 1:1, with the launcher's English labels inlined where it reads its i18n layer, and the clipboard read through the browser rather than main |
 | `src/game-settings-screen.ts` | `src/renderer/game-settings-screen.ts` | the column, the pane, the preview debounce, the entrance, the hover guard, the discard question and the six primitives. Its manifest machinery does not come across: there is no file to serialize, no validator in another process and no list/number editing surface, because every row that would need one is inert here |
 | `src/game-settings-model.ts` | same name | every section and every DATA row of the launcher's form, in its order, with its labels, hints, placeholders and its untouched defaults; the action rows (Find online / Save / Reset / Move to card / Delete / Close) are not carried — the screen builds its own three (Find online / Add / Close). Only five rows are live — see below |
@@ -70,11 +70,26 @@ It compares every file whose first line is a `Ported 1:1 from playhook @ <sha> :
 the upstream file at the commit that header names (each file pins its own — `dominant-color.ts` and
 `sfx-limit.ts` sit on different commits from the rest), byte for byte once the header is dropped, and
 re-dumps `manifestJsonSchema()` from the launcher's built `dist/main/manifest.js` to compare with
-`schema/game.schema.json` (the recipe in `schema/SOURCE.md`, run rather than remembered). A file that
-diverges fails the run: either re-copy it, or — where the divergence is the point, as with
-`screen-sidebar.ts` — demote its header to plain `Ported from` and record the difference in the table
-above. It also says which upstream files have moved since their pinned commit; that is what a reconcile
-starts from.
+`schema/game.schema.json` (the recipe in `schema/SOURCE.md`, run rather than remembered — with the
+launcher's `build:main` as its LAST build there: its `build:renderer` overwrites `dist/shared` with ESM
+the CommonJS main cannot load, and the schema check then fails by name). A file that diverges fails the
+run: either re-copy it, or — where the divergence is the point, as with `screen-sidebar.ts` — demote its
+header to plain `Ported from` and record the difference in the table above. It also says which upstream
+files have moved since their pinned commit; that is what a reconcile starts from.
+
+A moved upstream file has three outcomes, not two. Re-copy it when the site can take the new text as it
+is. Demote it when the site means to differ. And when the upstream file has grown a dependency the site
+does not have, 1:1 is no longer possible at any commit past that point: keep the header pinned where it
+is and note it here, or demote it. Against the launcher's `release/v0.9.0` (the next reconcile) the
+check already reports two moved files:
+
+- `src/dom.ts` — upstream gained `PRESS_MS` / `pressFlash`, the press flash every button plays. The site
+  carries four copies of that pair (`controls.ts`, `game-settings-screen.ts`, `osk.ts`,
+  `settings-screen.ts`); re-copying `dom.ts` and dropping the copies is the reconcile.
+- `src/nav-surface.ts` — upstream now also declares `TextEntrySurface` / `FilePickerSurface`, which
+  import `ConfigPickKind` / `ConfigPickResult` from `shared/types` — a module the site does not have.
+  The pin stays at `c26fae7` (the contract the site uses is unchanged), or the header is demoted; 1:1
+  with a later commit is not on the table.
 
 It runs **locally only**: playhook is `private: true`, so the deploy workflow has no checkout to compare
 against and does not run it. The check is opt-in by construction, which is why the table stays the

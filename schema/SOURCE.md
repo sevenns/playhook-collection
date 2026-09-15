@@ -77,5 +77,8 @@ npm run build:main
 node -e "console.log(JSON.stringify(require('./dist/main/manifest.js').manifestJsonSchema(), null, 2))" > ../playhook-collection/schema/game.schema.json
 ```
 
-(`tsconfig.main.json` emits CommonJS, so plain `node` reads it — no `tsx` needed.) There is no
-automation yet; a generator belongs with the task that makes the collection large enough to drift.
+(`tsconfig.main.json` emits CommonJS, so plain `node` reads it — no `tsx` needed. Run `build:main`
+LAST in the launcher: its `build:renderer` overwrites `dist/shared` with ESM the CommonJS main cannot
+load, and `npm run build` there already orders the two that way.) The comparison is automated —
+`PLAYHOOK_DIR=../playhook npm run check:ported` re-dumps the schema and diffs it against this file (see
+PORTED-FROM.md, "Keeping up with drift"); the re-dump itself is still done by hand, with the line above.
