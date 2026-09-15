@@ -74,7 +74,19 @@ being left for the user to source. Manifest paths stay **card-relative** and res
 directory.
 
 Keep them web-sized. Everything under `assets/` is served from GitHub Pages and downloaded by anyone
-who opens the preview: prefer webp over jpg, and don't ship a lossless soundtrack.
+who opens the preview: prefer webp over jpg, and don't ship a lossless soundtrack. The build holds the
+files the preview names to these limits — a hero image **≤ 1500 KB**, the cover **≤ 150 KB**, the music
+**≤ 3000 KB** — with a warning above the limit and a failed build above three times it (that is not a
+heavy asset any more, it is the wrong file). A one-off that needs more is built with a higher limit,
+not a lower standard: `PHC_MAX_HERO_KB`, `PHC_MAX_GRID_KB` and `PHC_MAX_MUSIC_KB` in the environment
+override the numbers for that run. For a track, Vorbis at `ffmpeg -c:a libvorbis -q:a 2` (about
+96 kbps) or an mp3 at 128 kbps or less is the way under the limit; a track that runs past five minutes
+will not fit even so, and stays a warning to weigh rather than a rule to bend.
+
+The build also checks that the files the **manifest** names — `heroImage`, `gridImage`,
+`backgroundMusic` — exist in the entry, and only warns when one does not: the preview and the manifest
+are allowed to differ, and the site never opens those paths. A card made from that entry would miss the
+file, though, which is why it is said out loud.
 
 **At most three `heroImage` entries.** Playhook 0.8.0 caps them: the runtime keeps the first three and
 logs a warning, the Customize screen refuses to save a fourth. The schema cannot express the cap, so the

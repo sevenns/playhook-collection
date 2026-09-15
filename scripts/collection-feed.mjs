@@ -117,19 +117,86 @@ async function verifyPreview(preview, entryDir, slug) {
 }
 
 /**
- * A webp cover is served to the launcher AS IS: nativeImage cannot decode webp, so the launcher builds
- * no thumbnail and re-encodes nothing — and a webp over its 4 MiB cap is skipped outright, leaving the
- * carousel card blank. Keeping the file small is OUR job, hence a warning rather than silence.
+ * How big a preview asset may be before the build says something. "Keep them web-sized" in
+ * collection/README.md is the rule; these are its numbers, in KB, overridable per run through the
+ * environment (a one-off entry that needs more can be built with a higher limit rather than a lower
+ * standard). Over the limit is a warning; over three times the limit the build fails — that is no longer
+ * a heavy asset, it is the wrong file.
+ *
+ * The cover's limit is not caution but a requirement: a webp cover is served to the launcher AS IS
+ * (nativeImage cannot decode webp, so the launcher builds no thumbnail and re-encodes nothing), and a
+ * webp over its 4 MiB cap is skipped outright, leaving the carousel card blank. Keeping the file small
+ * is OUR job.
  */
-const GRID_WARN_BYTES = 150 * 1024;
+const SIZE_LIMITS = {
+  hero: { env: 'PHC_MAX_HERO_KB', defaultKb: 1500 },
+  music: { env: 'PHC_MAX_MUSIC_KB', defaultKb: 3000 },
+  grid: { env: 'PHC_MAX_GRID_KB', defaultKb: 150 },
+};
+const SIZE_FAIL_FACTOR = 3;
 
-async function warnOversizedGrid(gridPath, entryDir, slug) {
-  if (gridPath === null) return;
-  const { size } = await stat(join(entryDir, gridPath));
-  if (size <= GRID_WARN_BYTES) return;
-  console.warn(
-    `  ! ${slug}: cover is ${Math.round(size / 1024)} KB — keep it under ${GRID_WARN_BYTES / 1024} KB (webp is never re-encoded, see collection/README.md)`,
-  );
+/**
+ * The limit for one kind of asset, in KB: the environment's number when it is a positive integer, the
+ * default otherwise (an unset variable and a garbled one both mean "the usual").
+ * @param {keyof typeof SIZE_LIMITS} kind
+ * @param {NodeJS.ProcessEnv} env
+ */
+export function sizeLimitKb(kind, env = process.env) {
+  const { env: name, defaultKb } = SIZE_LIMITS[kind];
+  const raw = env[name];
+  if (raw === undefined) return defaultKb;
+  const parsed = Number(raw);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : defaultKb;
+}
+
+/**
+ * Warns above the limit and fails above three times it, for every asset the preview names — those are
+ * the files everybody who opens the entry downloads.
+ * @param {{ hero: string[]; grid: string | null; music: string | null }} preview
+ */
+async function gatePreviewSizes(preview, entryDir, slug, env = process.env) {
+  const check = async (kind, path) => {
+    const limitKb = sizeLimitKb(kind, env);
+    const { size } = await stat(join(entryDir, path));
+    const sizeKb = Math.round(size / 1024);
+    if (sizeKb <= limitKb) return;
+    const label = `${slug}: ${kind} ${path} is ${sizeKb} KB`;
+    if (sizeKb > limitKb * SIZE_FAIL_FACTOR) {
+      throw new Error(
+        `collection/${label} — over ${SIZE_FAIL_FACTOR}× the ${limitKb} KB limit (${SIZE_LIMITS[kind].env}); that is not a heavy asset, it is the wrong file. See collection/README.md`,
+      );
+    }
+    console.warn(
+      `  ! ${label} — keep it under ${limitKb} KB (${SIZE_LIMITS[kind].env}, see collection/README.md)`,
+    );
+  };
+  for (const path of preview.hero) await check('hero', path);
+  if (preview.grid !== null) await check('grid', preview.grid);
+  if (preview.music !== null) await check('music', preview.music);
+}
+
+/**
+ * The files the MANIFEST names — `heroImage`, `gridImage`, `backgroundMusic`, card-relative — should be
+ * in the entry too, since the whole entry is what somebody drops on their card. A warning, not a
+ * failure: the preview and the manifest "are allowed to differ" (collection/README.md), and the site
+ * itself never opens these paths.
+ */
+async function warnMissingManifestAssets(manifest, entryDir, slug) {
+  for (const game of gamesOf(manifest)) {
+    const named = [
+      ...heroesOf(game).map((path) => ['heroImage', path]),
+      ...(typeof game.gridImage === 'string' ? [['gridImage', game.gridImage]] : []),
+      ...(typeof game.backgroundMusic === 'string'
+        ? [['backgroundMusic', game.backgroundMusic]]
+        : []),
+    ];
+    for (const [field, path] of named) {
+      if (await exists(join(entryDir, path))) continue;
+      console.warn(
+        `  ! ${slug}: game.json names ${field} "${path}", which is not in the entry — a card made from it would miss the file`,
+      );
+    }
+  }
 }
 
 /**
@@ -258,7 +325,8 @@ export async function buildCollectionFeed(root, dist) {
     }
 
     const preview = await verifyPreview(declaredPreview, entryDir, slug);
-    await warnOversizedGrid(preview.grid, entryDir, slug);
+    await gatePreviewSizes(preview, entryDir, slug);
+    await warnMissingManifestAssets(manifest, entryDir, slug);
 
     // The WHOLE assets directory travels, not just what the preview names: this is also the directory a
     // human drops on their card, and the manifest references files the site never opens (save folders).
