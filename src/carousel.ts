@@ -1,11 +1,11 @@
 // The collection carousel, ported from playhook @ c26fae7 (release/v0.8.0) :
 // src/renderer/carousel.ts — a strip of covers sliding under a fixed anchor while the selection stays
 // put. In the launcher it is the top-level SCREEN, above the bar screen of whichever game is selected;
-// here it is a layer over the landing page, switched on by the `#/collection` deep link (the Collection
-// menu item writes it). Picking a card navigates to that entry — the site's own `detail`.
+// here it is the top level too — the page opens on it, and `#/`, `#/collection` and any unrecognised
+// hash mean it (router.ts). Picking a card navigates to that entry — the site's own `detail`.
 //
 // The row holds two kinds of card, as the launcher's does: the catalogue's entries first, then the site's
-// own cards at the tail (system-cards.ts — the launcher has four, the site has Library). Pressing A on an
+// own cards at the tail (system-cards.ts — the launcher has four, the site three). Pressing A on an
 // entry opens its screen; pressing A on a site card opens that surface instead, and the screen level does
 // not change.
 //
@@ -36,11 +36,12 @@ import { FALLBACK_COLOUR, JELLY, createFocusJelly, jellyBoxOf } from './focus-je
 import { pxUnit } from './px-unit.js';
 
 /**
- * The screen level (mirrors `#app[data-screen]`). `home` is the site's own third value and carries NO
- * attribute: the launcher is always on one of its two levels, but the landing page is neither — and
- * labelling it `detail` would hand it the entry screen's hero zoom.
+ * The screen level (mirrors `#app[data-screen]`). `empty` is the site's own third value and carries NO
+ * attribute: the row has fewer than two cards to flip through (the feed still in flight, or failed) and
+ * so there is no carousel to stand on. The launcher is always on one of its two levels; labelling this
+ * one `detail` would hand it the entry screen's hero zoom.
  */
-export type Screen = 'home' | 'carousel' | 'detail';
+export type Screen = 'empty' | 'carousel' | 'detail';
 
 /**
  * One place in the row: a catalogue entry, or one of the site's own cards. The row always holds the site
@@ -152,7 +153,7 @@ export function createCarousel(deps: CarouselDeps): Carousel {
   // Library be reachable even when the feed failed to load.
   let items: readonly CarouselItem[] = [...systemItems];
   let index = 0;
-  let screen: Screen = 'home';
+  let screen: Screen = 'empty';
   let busySlug: string | null = null;
   // While the strip is coming back from an entry screen the selected card is still growing out of the
   // play square. Moving the selection through that resizes and reorders a card mid-morph, which shows.
@@ -353,11 +354,11 @@ export function createCarousel(deps: CarouselDeps): Carousel {
 
   function setScreen(next: Screen): void {
     // With a single card there is nothing to flip through: the landing page stays as it is.
-    const effective: Screen = next === 'carousel' && !exists() ? 'home' : next;
+    const effective: Screen = next === 'carousel' && !exists() ? 'empty' : next;
     if (effective === screen) return;
     const previous = screen;
     screen = effective;
-    if (effective === 'home') delete app.dataset['screen'];
+    if (effective === 'empty') delete app.dataset['screen'];
     else app.dataset['screen'] = effective;
     // The override belongs to ONE entry screen (see setDetailArt); back on the row the strip speaks for
     // itself again.
@@ -499,7 +500,7 @@ export function createCarousel(deps: CarouselDeps): Carousel {
       applyLayout();
       loadNearbyArt();
       // A row that shrank to a single card has no carousel left to stand on.
-      if (!exists() && screen === 'carousel') setScreen('home');
+      if (!exists() && screen === 'carousel') setScreen('empty');
     },
 
     move,
