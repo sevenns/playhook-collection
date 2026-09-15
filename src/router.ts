@@ -62,12 +62,13 @@ export interface Router {
 }
 
 /** What the hash means: the route, plus whether the game list should be open over it. */
-interface Parsed {
+export interface Parsed {
   readonly route: Route;
   readonly wantsCollection: boolean;
 }
 
-function parse(hash: string): Parsed {
+/** Exported for the tests: the hash is untrusted input, and this is the whole of what reads it. */
+export function parse(hash: string): Parsed {
   const path = hash.replace(/^#\/?/, '');
   const match = /^collection\/([^/?#]+)$/.exec(path);
   const slug = match?.[1];

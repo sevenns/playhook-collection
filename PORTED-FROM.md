@@ -51,7 +51,7 @@ carry 1:1 — so every file below still matches 0.8.1 unless its own header name
 | `public/favicon.png` | `assets/icon.png` | 1:1 |
 | `public/sfx/<set>/*.ogg` | `audio/ui/<set>/*.wav` | all eighteen of the launcher's 0.8.0 sets, re-encoded to Vorbis: `ffmpeg -i <slot>.wav -c:a libvorbis -q:a 2 -ar 48000 <slot>.ogg` for the eight slots the site plays (`play`, `move`, `button`, `back`, `limit`, `popup-open`, `popup-close`, `typing`). `notify` is not shipped — nothing here notifies |
 | `public/fonts/*.woff2` | `src/renderer/fonts/*.ttf` | **not** the same files — Google Fonts' latin woff2 subsets (96 KB total vs 13.7 MB of CJK TTF); the four `.`/`…` overrides that hand those two glyphs to the fallback font are copied |
-| `eslint.config.mjs`, `.prettierrc.json`, `tsconfig.json` | same names | copied; `types: ["node"]` and the `release/**` ignore dropped, the `test/**` block skipped (there are no tests here) |
+| `eslint.config.mjs`, `.prettierrc.json`, `tsconfig.json`, `vitest.config.ts` | same names | copied; the `release/**` ignore and the `electron` alias dropped, `scripts/**` linted and typechecked rather than ignored (a broken script is a broken deploy here), no `happy-dom` (the modules under test never touch the DOM at import time) |
 
 ## Keeping up with drift
 

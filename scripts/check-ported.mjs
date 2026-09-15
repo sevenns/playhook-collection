@@ -138,16 +138,20 @@ function movedUpstream(playhookDir, ported) {
 function dumpSchema(playhookDir) {
   const manifest = join(playhookDir, 'dist', 'main', 'manifest.js');
   const require = createRequire(import.meta.url);
-  /** @type {{ manifestJsonSchema: () => unknown }} */
-  let module;
+  /** @type {unknown} */
+  let loaded;
   try {
-    module = require(manifest);
+    loaded = require(manifest);
   } catch (error) {
     throw new Error(
       `cannot load ${manifest} (run \`npm run build:main\` in ${playhookDir} first): ${error instanceof Error ? error.message : String(error)}`,
     );
   }
-  return `${JSON.stringify(module.manifestJsonSchema(), null, 2)}\n`;
+  if (typeof loaded !== 'object' || loaded === null || !('manifestJsonSchema' in loaded)) {
+    throw new Error(`${manifest} exports no manifestJsonSchema() — is this a playhook checkout?`);
+  }
+  const { manifestJsonSchema } = /** @type {{ manifestJsonSchema: () => unknown }} */ (loaded);
+  return `${JSON.stringify(manifestJsonSchema(), null, 2)}\n`;
 }
 
 /**
