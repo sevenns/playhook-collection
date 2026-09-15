@@ -20,7 +20,7 @@ carry 1:1 — so every file below still matches 0.8.1 unless its own header name
 | `src/focus-jelly.ts` | `src/renderer/focus-jelly.ts` | 1:1 |
 | `src/index-math.ts`, `src/entrance.ts`, `src/nav-surface.ts`, `src/hover-guard.ts` | same names | 1:1 |
 | `src/screen-scroller.ts` | `src/renderer/screen-scroller.ts` | 1:1 minus its `pxUnit` (see `src/px-unit.ts` below) |
-| `src/screen-sidebar.ts` | `src/renderer/screen-sidebar.ts` | 1:1 but for one line — the column of sections + actions both screens are built around. Where the launcher swallows a press on a disabled action (`return`), the site plays `limit`: "inert = the limit sound" is the site's convention everywhere else (the pad's dead ends, the inert rows of the pane), and a silent sidebar would be its one exception |
+| `src/screen-sidebar.ts` | `src/renderer/screen-sidebar.ts` | 1:1 but for one line (its header says `Ported from`, not `Ported 1:1`, so `check:ported` does not hold it to the byte) — the column of sections + actions both screens are built around. Where the launcher swallows a press on a disabled action (`return`), the site plays `limit`: "inert = the limit sound" is the site's convention everywhere else (the pad's dead ends, the inert rows of the pane), and a silent sidebar would be its one exception |
 | `src/system-cards.ts`, `src/system-card-icons.ts` | same names | the launcher carries four cards (Library / Notifications / Settings / System); the site carries three of them — see below. The icons set `fill-rule` on the `<svg>` once, where the launcher sets `fill-rule` + `clip-rule` on each `<path>`; same rendering, one attribute fewer |
 | `src/library-grid.ts` | `src/renderer/library-grid.ts` | geometry and stepping 1:1; the SECTIONS are the site's own (see below) |
 | `src/library-screen.ts` | `src/renderer/library-screen.ts` | ported; its artwork machinery is not (there a cover is a data URL main generates on first sight, so the screen needs a bounded cache with a request queue and an eviction callback — here a cover is a URL and the browser's cache is that cache). The row window, the FLIP re-flow, the section arrival, the focus body, the sidebar and the six primitives all come across |
@@ -58,6 +58,27 @@ carry 1:1 — so every file below still matches 0.8.1 unless its own header name
 The launcher will keep evolving and this copy will not follow automatically. That is fine — this is a
 showcase, not a second launcher, and a stale button radius harms nobody. When the two do need to be
 reconciled, diff against the commit above and then update it here.
+
+The table above is a set of promises, and `scripts/check-ported.mjs` is what checks them — run it
+**before** every reconcile, and again after:
+
+```bash
+PLAYHOOK_DIR=../playhook npm run check:ported
+```
+
+It compares every file whose first line is a `Ported 1:1 from playhook @ <sha> : <path>` header with
+the upstream file at the commit that header names (each file pins its own — `dominant-color.ts` and
+`sfx-limit.ts` sit on different commits from the rest), byte for byte once the header is dropped, and
+re-dumps `manifestJsonSchema()` from the launcher's built `dist/main/manifest.js` to compare with
+`schema/game.schema.json` (the recipe in `schema/SOURCE.md`, run rather than remembered). A file that
+diverges fails the run: either re-copy it, or — where the divergence is the point, as with
+`screen-sidebar.ts` — demote its header to plain `Ported from` and record the difference in the table
+above. It also says which upstream files have moved since their pinned commit; that is what a reconcile
+starts from.
+
+It runs **locally only**: playhook is `private: true`, so the deploy workflow has no checkout to compare
+against and does not run it. The check is opt-in by construction, which is why the table stays the
+record of truth and the script stays the way to verify it.
 
 Every deliberate divergence in the CSS carries a `BROWSER:` comment explaining what the launcher does
 and why a public web page cannot.

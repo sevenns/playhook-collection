@@ -54,6 +54,11 @@ Gates, both run in CI before deploy:
 npm run typecheck && npm run lint
 ```
 
+One more check runs only by hand, because it needs a local checkout of the launcher (a private
+repository, so CI has none): `PLAYHOOK_DIR=../playhook npm run check:ported` holds every file that
+claims to be a 1:1 copy to that claim, and the schema to its dump. Run it before reconciling with a newer
+Playhook — see [PORTED-FROM.md](PORTED-FROM.md), "Keeping up with drift".
+
 There are no tests. The launcher keeps the vitest suite for the parts that actually decide things; here
 the gates are typecheck, lint, a build that validates every manifest, and looking at the screens.
 

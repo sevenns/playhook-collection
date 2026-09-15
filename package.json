@@ -11,6 +11,7 @@
     "lint": "eslint src",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "check:ported": "node scripts/check-ported.mjs",
     "build": "node scripts/build.mjs",
     "dev": "node scripts/build.mjs && esbuild --servedir=dist --serve=8000 --watch"
   },
