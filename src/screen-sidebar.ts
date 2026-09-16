@@ -1,6 +1,8 @@
-// Ported 1:1 from playhook @ c26fae7 (release/v0.8.0) : src/renderer/screen-sidebar.ts
-// Do not diverge without reason — see PORTED-FROM.md. In the launcher it serves Settings, Customize and
-// the Library; here the Library screen is its only user so far.
+// Ported from playhook @ c26fae7 (release/v0.8.0) : src/renderer/screen-sidebar.ts; diverges in ONE
+// line: `playLimit()` on a disabled entry, where the launcher swallows the press — the site's inert
+// convention ("inert = the limit sound"), recorded in PORTED-FROM.md. Everything else is 1:1: do not
+// diverge further without reason. In the launcher it serves Settings, Customize and the Library; here the
+// Library screen is its only user so far.
 //
 // The left-hand column both settings screens are built around: the sections of the screen, then the
 // actions that end it (Save, Discard, Close…).

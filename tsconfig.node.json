@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // For scripts/*.mjs: each carries `// @ts-check`, and the tests import collection-feed.mjs (which has
+    // no declarations) — without allowJs the typecheck fails on TS7016.
+    "allowJs": true,
+    "types": ["node"]
+  },
+  // The Node half of the typecheck gate: the scripts (the one piece of code whose failure breaks a
+  // deploy, which is why they are checked with @types/node rather than left to run-and-see) and the
+  // tests. The src files the tests import come along through the imports; their own gate is tsconfig.json.
+  "include": ["scripts/**/*.mjs", "test/**/*.ts"]
+}

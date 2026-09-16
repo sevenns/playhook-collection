@@ -14,9 +14,13 @@
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "noEmit": true
+    "noEmit": true,
+    // The browser program: no Node globals. @types/node is installed for the scripts and the tests
+    // (tsconfig.node.json), and without this an installed @types package is pulled into every program —
+    // `process` in src/ would type-check and only fail in the browser.
+    "types": []
   },
-  // Type-check ONLY config (noEmit) over the whole of src — the single typecheck gate. scripts/build.mjs
-  // is a Node script and stays outside this program on purpose (no @types/node dependency here).
+  // Type-check ONLY config (noEmit) over the site itself. The Node scripts and the tests are checked by
+  // tsconfig.node.json, which extends this one — `npm run typecheck` runs both.
   "include": ["src/**/*.ts"]
 }

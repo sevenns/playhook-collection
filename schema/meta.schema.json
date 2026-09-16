@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sevenns.github.io/playhook-collection/schema/meta.schema.json",
+  "title": "Collection entry metadata (meta.json)",
+  "description": "Everything about a collection entry that is not the manifest: who verified it, when, on what, and what the site previews. Hand-written — unlike game.schema.json, this file has no upstream. The contract is collection/README.md; this is its enforceable half.",
+  "type": "object",
+  "properties": {
+    "title": {
+      "description": "Human-readable game name — the feed's `title`, the bar copy on the site.",
+      "type": "string",
+      "minLength": 1
+    },
+    "author": {
+      "description": "Who verified the entry, as a GitHub handle.",
+      "type": "string",
+      "minLength": 1
+    },
+    "verifiedAt": {
+      "description": "The date somebody actually ran the manifest, not the commit date. Published as the feed's `updatedAt`. Calendar date only, YYYY-MM-DD: `format: date` is a no-op in Ajv without ajv-formats, so the shape is a pattern.",
+      "type": "string",
+      "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"
+    },
+    "tested": {
+      "description": "The systems the manifest was run on, in Node's own process.platform vocabulary (darwin is macOS) — not the launcher's HostPlatform words, which meta.json never reaches. Not published to the feed; it is here for whoever reads the repository.",
+      "type": "array",
+      "items": { "enum": ["win32", "linux", "darwin"] },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "steamAppId": {
+      "description": "The game's Steam app id, when it has one.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "notes": {
+      "description": "Anything a user needs to know before dropping this on a card.",
+      "type": "string"
+    },
+    "preview": {
+      "description": "What the site shows for the entry, listed explicitly. Paths are relative to the entry directory. Optional: without it the feed generator guesses one from the manifest.",
+      "type": "object",
+      "properties": {
+        "hero": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "grid": { "type": "string", "minLength": 1 },
+        "music": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": ["title", "author", "verifiedAt", "tested"],
+  "additionalProperties": false
+}

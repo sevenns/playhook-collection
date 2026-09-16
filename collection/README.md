@@ -32,13 +32,16 @@ collection/
 
 `steamAppId`, `notes` and `preview` are optional; the rest are not. `verifiedAt` is the date somebody
 actually ran the manifest — not the date the file was committed, and it is what the feed publishes as
-`updatedAt`.
+`updatedAt`; a calendar date, `YYYY-MM-DD`. The whole file is held to
+[../schema/meta.schema.json](../schema/meta.schema.json) — hand-written, unlike the manifest's schema,
+because this file has no upstream — and the build fails on anything it refuses: a missing `author`, a
+`verifiedAt` that is not a date, a `steamAppId` that is not a whole number, a key it does not know.
 
 `tested` names the systems the manifest was actually run on, and it takes Node's own `process.platform`
 values — **`win32`**, **`linux`**, **`darwin`** (that last one is macOS). Not the words the launcher uses
-internally for the same thing: `meta.json` never reaches it. The build fails on anything else, because
-`tested` is not published to the feed — it is here for whoever reads the repository, so a typo would go
-unnoticed until somebody opened the file.
+internally for the same thing: `meta.json` never reaches it. The schema fails the build on anything else,
+because `tested` is not published to the feed — it is here for whoever reads the repository, so a typo
+would go unnoticed until somebody opened the file.
 
 **`preview` is what the site shows**, listed explicitly rather than read out of the manifest. The
 manifest is a file for somebody's card: its paths are card-relative and it references things the site has
@@ -71,7 +74,19 @@ being left for the user to source. Manifest paths stay **card-relative** and res
 directory.
 
 Keep them web-sized. Everything under `assets/` is served from GitHub Pages and downloaded by anyone
-who opens the preview: prefer webp over jpg, and don't ship a lossless soundtrack.
+who opens the preview: prefer webp over jpg, and don't ship a lossless soundtrack. The build holds the
+files the preview names to these limits — a hero image **≤ 1500 KB**, the cover **≤ 150 KB**, the music
+**≤ 3000 KB** — with a warning above the limit and a failed build above three times it (that is not a
+heavy asset any more, it is the wrong file). A one-off that needs more is built with a higher limit,
+not a lower standard: `PHC_MAX_HERO_KB`, `PHC_MAX_GRID_KB` and `PHC_MAX_MUSIC_KB` in the environment
+override the numbers for that run. For a track, Vorbis at `ffmpeg -c:a libvorbis -q:a 2` (about
+96 kbps) or an mp3 at 128 kbps or less is the way under the limit; a track that runs past five minutes
+will not fit even so, and stays a warning to weigh rather than a rule to bend.
+
+The build also checks that the files the **manifest** names — `heroImage`, `gridImage`,
+`backgroundMusic` — exist in the entry, and only warns when one does not: the preview and the manifest
+are allowed to differ, and the site never opens those paths. A card made from that entry would miss the
+file, though, which is why it is said out loud.
 
 **At most three `heroImage` entries.** Playhook 0.8.0 caps them: the runtime keeps the first three and
 logs a warning, the Customize screen refuses to save a fourth. The schema cannot express the cap, so the
@@ -137,8 +152,9 @@ them against `…/api/v1/` explicitly; dropping such a string straight into an `
 from `/playhook-collection/` resolves one directory short and 404s with a clean console.
 
 The generator is `scripts/collection-feed.mjs`, run from `scripts/build.mjs`. It validates every
-`game.json` against `../schema/game.schema.json` and **fails the build** on a schema error or a
-slug outside `[a-z0-9-]+` — an entry that silently vanishes from the feed is diagnosed painfully. The
+`game.json` against `../schema/game.schema.json`, every `meta.json` against `../schema/meta.schema.json`,
+and **fails the build** on a schema error or a slug outside `[a-z0-9-]+` — an entry that silently
+vanishes from the feed is diagnosed painfully. The
 whole `assets/` directory is copied, not just what `preview` names: that directory is also what a human
 drops on their card, and the manifest points at files the site never opens. It also enforces what the
 schema cannot: more than three `heroImage` entries, a leftover `sounds` block, or a `pc` block, fail

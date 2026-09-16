@@ -5,5 +5,5 @@
   "executable": "KZ.exe",
   "heroImage": ["assets/hero-0.webp"],
   "gridImage": "assets/grid.webp",
-  "backgroundMusic": "assets/theme.mp3"
+  "backgroundMusic": "assets/theme.ogg"
 }

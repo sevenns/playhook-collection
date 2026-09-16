@@ -1,0 +1,12 @@
+{
+  "title": "Valid Entry",
+  "steamAppId": 1,
+  "author": "fixture",
+  "verifiedAt": "2026-01-01",
+  "tested": ["win32"],
+  "preview": {
+    "hero": ["assets/hero.webp"],
+    "grid": "assets/grid.webp",
+    "music": "assets/theme.ogg"
+  }
+}

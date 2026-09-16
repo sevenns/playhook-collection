@@ -15,8 +15,8 @@ function there means the collection has no schema at all.
 | | |
 |---|---|
 | Source repo | [sevenns/playhook](https://github.com/sevenns/playhook) |
-| Version | 0.8.0 |
-| Commit | `c26fae7` (branch `release/v0.8.0`) |
+| Version | 0.8.0 (unchanged through 0.8.1: `manifest.ts` did not move between `c26fae7` and `b370000`) |
+| Commit | `c26fae7` (branch `release/v0.8.0`, merged) |
 | Dumped | 2026-09-08 |
 
 ## What the schema does NOT check
@@ -77,5 +77,8 @@ npm run build:main
 node -e "console.log(JSON.stringify(require('./dist/main/manifest.js').manifestJsonSchema(), null, 2))" > ../playhook-collection/schema/game.schema.json
 ```
 
-(`tsconfig.main.json` emits CommonJS, so plain `node` reads it — no `tsx` needed.) There is no
-automation yet; a generator belongs with the task that makes the collection large enough to drift.
+(`tsconfig.main.json` emits CommonJS, so plain `node` reads it — no `tsx` needed. Run `build:main`
+LAST in the launcher: its `build:renderer` overwrites `dist/shared` with ESM the CommonJS main cannot
+load, and `npm run build` there already orders the two that way.) The comparison is automated —
+`PLAYHOOK_DIR=../playhook npm run check:ported` re-dumps the schema and diffs it against this file (see
+PORTED-FROM.md, "Keeping up with drift"); the re-dump itself is still done by hand, with the line above.

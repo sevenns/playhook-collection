@@ -19,9 +19,47 @@
 // Failure policy is deliberately split: a malformed ENTRY (bad slug, invalid manifest) FAILS the build,
 // because an entry that silently drops out of the feed is diagnosed painfully; a missing PREVIEW asset
 // only warns and drops that one field, because a degraded preview is not worth a red build.
+// @ts-check
 import { cp, mkdir, readdir, readFile, stat, writeFile, access } from 'node:fs/promises';
 import { basename, join, posix } from 'node:path';
 import Ajv2020 from 'ajv/dist/2020.js';
+
+/**
+ * One game as the manifest schema admits it, with the fields the gates read left `unknown` — Ajv has
+ * validated the whole manifest against schema/game.schema.json before any of this runs, and the gates
+ * below still narrow every field they touch, because the schema is not strict.
+ * @typedef {Record<string, unknown>} Game
+ * @typedef {Game | Game[]} Manifest
+ *
+ * meta.json after schema/meta.schema.json has passed it (collection/README.md is the contract).
+ * @typedef {object} Meta
+ * @property {string} title
+ * @property {string} author
+ * @property {string} verifiedAt
+ * @property {string[]} tested
+ * @property {number} [steamAppId]
+ * @property {string} [notes]
+ * @property {DeclaredPreview} [preview]
+ *
+ * @typedef {{ hero?: string[]; grid?: string; music?: string }} DeclaredPreview
+ * @typedef {{ hero: string[]; grid: string | null; music: string | null }} Preview
+ *
+ * One row of index.json — the per-entry contract (collection/README.md, "Index entry shape").
+ * @typedef {object} FeedEntry
+ * @property {string} slug
+ * @property {string} title
+ * @property {string} updatedAt
+ * @property {string} sourcePath
+ * @property {string} manifestUrl
+ * @property {string[]} heroUrls
+ * @property {string} [gridUrl]
+ * @property {number} [steamAppId]
+ * @property {string} [music]
+ * @property {unknown[]} [genres]
+ * @property {string} [releaseDate]
+ * @property {unknown[]} [platforms]
+ * @property {object} [description]
+ */
 
 const SLUG_RE = /^[a-z0-9-]+$/;
 
@@ -32,6 +70,7 @@ const SLUG_RE = /^[a-z0-9-]+$/;
  */
 const MAX_HERO_IMAGES = 3;
 
+/** @param {string} path */
 const exists = async (path) => {
   try {
     await access(path);
@@ -41,49 +80,80 @@ const exists = async (path) => {
   }
 };
 
-const readJson = async (path) => JSON.parse(await readFile(path, 'utf8'));
+/**
+ * @param {string} path
+ * @returns {Promise<unknown>}
+ */
+const readJson = async (path) => {
+  /** @type {unknown} */
+  const parsed = JSON.parse(await readFile(path, 'utf8'));
+  return parsed;
+};
 
 /**
- * Compiles the launcher's own manifest schema. It is a `oneOf` of [single manifest, array of manifests];
- * the nested `$schema` on the first branch is what pins it to draft 2020-12, so Ajv2020 is the right
- * dialect. `strict: false` because that nested keyword is not where a 2020-12 resource root belongs and
- * strict mode rejects it — the schema is generated (see schema/SOURCE.md), so it is not ours to reshape.
+ * Compiles both schemas with one Ajv. The launcher's manifest schema is a `oneOf` of [single manifest,
+ * array of manifests]; the nested `$schema` on the first branch is what pins it to draft 2020-12, so
+ * Ajv2020 is the right dialect. `strict: false` because that nested keyword is not where a 2020-12
+ * resource root belongs and strict mode rejects it — the schema is generated (see schema/SOURCE.md), so
+ * it is not ours to reshape. meta.schema.json is hand-written (collection/README.md is its contract) and
+ * needs no such allowance, but one instance with one setting is simpler than two.
+ * @param {string} root
  */
-async function compileManifestValidator(root) {
-  const schema = await readJson(join(root, 'schema', 'game.schema.json'));
-  const ajv = new Ajv2020.default({ strict: false, allErrors: true });
-  return ajv.compile(schema);
+async function compileValidators(root) {
+  const ajv = new Ajv2020({ strict: false, allErrors: true });
+  /** @param {string} name */
+  const schema = async (name) =>
+    /** @type {import('ajv').AnySchema} */ (await readJson(join(root, 'schema', name)));
+  return {
+    manifest: /** @type {import('ajv').ValidateFunction<Manifest>} */ (
+      ajv.compile(await schema('game.schema.json'))
+    ),
+    meta: /** @type {import('ajv').ValidateFunction<Meta>} */ (
+      ajv.compile(await schema('meta.schema.json'))
+    ),
+  };
 }
+
+/**
+ * Ajv's errors as one line: `/path message; /path message`.
+ * @param {import('ajv').ValidateFunction<unknown>} validate
+ */
+const describeErrors = (validate) =>
+  (validate.errors ?? [])
+    .map((e) => `${e.instancePath === '' ? '/' : e.instancePath} ${e.message}`)
+    .join('; ');
 
 /**
  * A manifest is `oneOf` [one game, an array of games] — the schema says so, and every gate below has to
  * run per GAME or a multi-game card would sail past all of them. Normalising once, here, is what keeps
  * the rest of this file from re-deciding the question in five places.
+ * @param {Manifest} manifest
+ * @returns {Game[]}
  */
 const gamesOf = (manifest) => (Array.isArray(manifest) ? manifest : [manifest]);
 
-/** `heroImage` is a string OR an array. A naive `.length` on the string form counts CHARACTERS. */
+/**
+ * `heroImage` is a string OR an array. A naive `.length` on the string form counts CHARACTERS.
+ * @param {Game} game
+ * @returns {string[]}
+ */
 const heroesOf = (game) =>
   Array.isArray(game.heroImage)
-    ? game.heroImage
+    ? game.heroImage.filter((p) => typeof p === 'string')
     : typeof game.heroImage === 'string'
       ? [game.heroImage]
       : [];
 
 /**
- * The platforms `tested` may name — Node's own `process.platform` values, which is the vocabulary every
- * entry in this repository already uses. Not the launcher's `HostPlatform` ('windows' / 'linux' /
- * 'macos'): that one is internal to its renderer, and meta.json never reaches it.
- */
-const TESTED_PLATFORMS = ['win32', 'linux', 'darwin'];
-
-/**
  * Derives a preview block from the manifest when meta.json has none. A fallback for typical entries,
  * NOT a contract: manifest paths are card-relative, so this only guesses that the basename lives in
  * `assets/`. See collection/README.md. Takes ONE game — a multi-game card previews as its first.
+ * @param {Game} game
+ * @returns {DeclaredPreview}
  */
 function previewFromManifest(game) {
   const heroes = heroesOf(game);
+  /** @type {DeclaredPreview} */
   const preview = {};
   if (heroes.length > 0) preview.hero = heroes.map((p) => `assets/${basename(p)}`);
   if (typeof game.gridImage === 'string') preview.grid = `assets/${basename(game.gridImage)}`;
@@ -93,8 +163,15 @@ function previewFromManifest(game) {
   return preview;
 }
 
-/** Keeps only the preview paths whose files actually exist; warns (never fails) about the rest. */
+/**
+ * Keeps only the preview paths whose files actually exist; warns (never fails) about the rest.
+ * @param {DeclaredPreview} preview
+ * @param {string} entryDir
+ * @param {string} slug
+ * @returns {Promise<Preview>}
+ */
 async function verifyPreview(preview, entryDir, slug) {
+  /** @param {string | undefined} path */
   const keep = async (path) => {
     if (typeof path !== 'string' || path.length === 0) return false;
     if (await exists(join(entryDir, path))) return true;
@@ -102,37 +179,117 @@ async function verifyPreview(preview, entryDir, slug) {
     return false;
   };
 
+  /** @type {string[]} */
   const hero = [];
   for (const path of Array.isArray(preview.hero) ? preview.hero : []) {
     if (await keep(path)) hero.push(path);
   }
 
-  const grid = (await keep(preview.grid)) ? preview.grid : null;
-  const music = (await keep(preview.music)) ? preview.music : null;
+  const grid = typeof preview.grid === 'string' && (await keep(preview.grid)) ? preview.grid : null;
+  const music =
+    typeof preview.music === 'string' && (await keep(preview.music)) ? preview.music : null;
 
   return { hero, grid, music };
 }
 
 /**
- * A webp cover is served to the launcher AS IS: nativeImage cannot decode webp, so the launcher builds
- * no thumbnail and re-encodes nothing — and a webp over its 4 MiB cap is skipped outright, leaving the
- * carousel card blank. Keeping the file small is OUR job, hence a warning rather than silence.
+ * How big a preview asset may be before the build says something. "Keep them web-sized" in
+ * collection/README.md is the rule; these are its numbers, in KB, overridable per run through the
+ * environment (a one-off entry that needs more can be built with a higher limit rather than a lower
+ * standard). Over the limit is a warning; over three times the limit the build fails — that is no longer
+ * a heavy asset, it is the wrong file.
+ *
+ * The cover's limit is not caution but a requirement: a webp cover is served to the launcher AS IS
+ * (nativeImage cannot decode webp, so the launcher builds no thumbnail and re-encodes nothing), and a
+ * webp over its 4 MiB cap is skipped outright, leaving the carousel card blank. Keeping the file small
+ * is OUR job.
  */
-const GRID_WARN_BYTES = 150 * 1024;
+const SIZE_LIMITS = {
+  hero: { env: 'PHC_MAX_HERO_KB', defaultKb: 1500 },
+  music: { env: 'PHC_MAX_MUSIC_KB', defaultKb: 3000 },
+  grid: { env: 'PHC_MAX_GRID_KB', defaultKb: 150 },
+};
+const SIZE_FAIL_FACTOR = 3;
 
-async function warnOversizedGrid(gridPath, entryDir, slug) {
-  if (gridPath === null) return;
-  const { size } = await stat(join(entryDir, gridPath));
-  if (size <= GRID_WARN_BYTES) return;
-  console.warn(
-    `  ! ${slug}: cover is ${Math.round(size / 1024)} KB — keep it under ${GRID_WARN_BYTES / 1024} KB (webp is never re-encoded, see collection/README.md)`,
-  );
+/**
+ * The limit for one kind of asset, in KB: the environment's number when it is a positive integer, the
+ * default otherwise (an unset variable and a garbled one both mean "the usual").
+ * @param {keyof typeof SIZE_LIMITS} kind
+ * @param {NodeJS.ProcessEnv} env
+ */
+export function sizeLimitKb(kind, env = process.env) {
+  const { env: name, defaultKb } = SIZE_LIMITS[kind];
+  const raw = env[name];
+  if (raw === undefined) return defaultKb;
+  const parsed = Number(raw);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : defaultKb;
+}
+
+/**
+ * Warns above the limit and fails above three times it, for every asset the preview names — those are
+ * the files everybody who opens the entry downloads.
+ * @param {Preview} preview
+ * @param {string} entryDir
+ * @param {string} slug
+ * @param {NodeJS.ProcessEnv} env
+ */
+async function gatePreviewSizes(preview, entryDir, slug, env = process.env) {
+  /**
+   * @param {keyof typeof SIZE_LIMITS} kind
+   * @param {string} path
+   */
+  const check = async (kind, path) => {
+    const limitKb = sizeLimitKb(kind, env);
+    const { size } = await stat(join(entryDir, path));
+    const sizeKb = Math.round(size / 1024);
+    if (sizeKb <= limitKb) return;
+    const label = `${slug}: ${kind} ${path} is ${sizeKb} KB`;
+    if (sizeKb > limitKb * SIZE_FAIL_FACTOR) {
+      throw new Error(
+        `collection/${label} — over ${SIZE_FAIL_FACTOR}× the ${limitKb} KB limit (${SIZE_LIMITS[kind].env}); that is not a heavy asset, it is the wrong file. See collection/README.md`,
+      );
+    }
+    console.warn(
+      `  ! ${label} — keep it under ${limitKb} KB (${SIZE_LIMITS[kind].env}, see collection/README.md)`,
+    );
+  };
+  for (const path of preview.hero) await check('hero', path);
+  if (preview.grid !== null) await check('grid', preview.grid);
+  if (preview.music !== null) await check('music', preview.music);
+}
+
+/**
+ * The files the MANIFEST names — `heroImage`, `gridImage`, `backgroundMusic`, card-relative — should be
+ * in the entry too, since the whole entry is what somebody drops on their card. A warning, not a
+ * failure: the preview and the manifest "are allowed to differ" (collection/README.md), and the site
+ * itself never opens these paths.
+ * @param {Manifest} manifest
+ * @param {string} entryDir
+ * @param {string} slug
+ */
+async function warnMissingManifestAssets(manifest, entryDir, slug) {
+  for (const game of gamesOf(manifest)) {
+    /** @type {[string, string][]} */
+    const named = heroesOf(game).map((path) => ['heroImage', path]);
+    if (typeof game.gridImage === 'string') named.push(['gridImage', game.gridImage]);
+    if (typeof game.backgroundMusic === 'string') {
+      named.push(['backgroundMusic', game.backgroundMusic]);
+    }
+    for (const [field, path] of named) {
+      if (await exists(join(entryDir, path))) continue;
+      console.warn(
+        `  ! ${slug}: game.json names ${field} "${path}", which is not in the entry — a card made from it would miss the file`,
+      );
+    }
+  }
 }
 
 /**
  * The rules Playhook enforces at runtime but `schema/game.schema.json` cannot express. They fail the
  * build rather than warn: a manifest published here is a template other people copy, so an entry the
  * launcher would quietly degrade is worse than a red build. See schema/SOURCE.md.
+ * @param {Manifest} manifest
+ * @param {string} slug
  */
 function gateManifest(manifest, slug) {
   for (const game of gamesOf(manifest)) {
@@ -163,8 +320,11 @@ function gateManifest(manifest, slug) {
  * The manifest's own optional metadata, published as it is. Only fields that are present AND non-empty
  * travel: an empty list or an empty object says nothing, and an absent key is easier to consume than an
  * empty one. Takes ONE game — a multi-game card is described by its first, like its preview.
+ * @param {Game} game
+ * @returns {Pick<FeedEntry, 'genres' | 'releaseDate' | 'platforms' | 'description'>}
  */
 function metadataOf(game) {
+  /** @type {Pick<FeedEntry, 'genres' | 'releaseDate' | 'platforms' | 'description'>} */
   const metadata = {};
   if (Array.isArray(game.genres) && game.genres.length > 0) metadata.genres = game.genres;
   if (typeof game.releaseDate === 'string' && game.releaseDate.length > 0) {
@@ -193,9 +353,10 @@ export async function buildCollectionFeed(root, dist) {
   const outDir = join(dist, 'api', 'v1');
   await mkdir(outDir, { recursive: true });
 
-  const validateManifest = await compileManifestValidator(root);
+  const validate = await compileValidators(root);
 
   const dirents = (await exists(source)) ? await readdir(source, { withFileTypes: true }) : [];
+  /** @type {FeedEntry[]} */
   const entries = [];
 
   for (const dirent of dirents) {
@@ -216,11 +377,10 @@ export async function buildCollectionFeed(root, dist) {
     }
 
     const manifest = await readJson(manifestPath);
-    if (!validateManifest(manifest)) {
-      const detail = (validateManifest.errors ?? [])
-        .map((e) => `${e.instancePath === '' ? '/' : e.instancePath} ${e.message}`)
-        .join('; ');
-      throw new Error(`collection/${slug}/game.json fails schema/game.schema.json: ${detail}`);
+    if (!validate.manifest(manifest)) {
+      throw new Error(
+        `collection/${slug}/game.json fails schema/game.schema.json: ${describeErrors(validate.manifest)}`,
+      );
     }
     gateManifest(manifest, slug);
 
@@ -228,46 +388,41 @@ export async function buildCollectionFeed(root, dist) {
     if (!(await exists(metaPath))) {
       throw new Error(`collection/${slug}: meta.json is missing (title/verifiedAt live there)`);
     }
+    // The whole of meta.json is held to schema/meta.schema.json, and a red build on a typo is the point:
+    // most of what it says (`author`, `tested`, a misspelled key) is for the people reading this
+    // repository, never published, so nothing downstream would ever notice a stray "macos" or a
+    // `verifiedAt` that is not a date — it would sit there being quietly wrong for as long as nobody
+    // opened the file.
     const meta = await readJson(metaPath);
-    if (typeof meta.title !== 'string' || meta.title.length === 0) {
-      throw new Error(`collection/${slug}/meta.json: "title" is required`);
-    }
-    if (typeof meta.verifiedAt !== 'string' || meta.verifiedAt.length === 0) {
-      throw new Error(`collection/${slug}/meta.json: "verifiedAt" is required`);
-    }
-    if (!Array.isArray(meta.tested) || meta.tested.length === 0) {
+    if (!validate.meta(meta)) {
       throw new Error(
-        `collection/${slug}/meta.json: "tested" is required (see collection/README.md)`,
+        `collection/${slug}/meta.json fails schema/meta.schema.json: ${describeErrors(validate.meta)}`,
       );
     }
-    // A red build on a typo, because nothing downstream would ever notice one: `tested` is for the
-    // people reading this repository — it is not published to the feed — so a stray "macos" or "osx"
-    // would sit there being quietly wrong for as long as nobody opened the file.
-    for (const platform of meta.tested) {
-      if (!TESTED_PLATFORMS.includes(platform)) {
-        throw new Error(
-          `collection/${slug}/meta.json: "tested" has ${JSON.stringify(platform)} — expected one of ${TESTED_PLATFORMS.join(', ')}`,
-        );
-      }
-    }
 
+    const firstGame = gamesOf(manifest)[0] ?? {};
     const declaredPreview =
       typeof meta.preview === 'object' && meta.preview !== null
         ? meta.preview
-        : previewFromManifest(gamesOf(manifest)[0]);
+        : previewFromManifest(firstGame);
 
     // Warn, don't fail: the preview and the manifest "are allowed to differ" (collection/README.md), and
     // a degraded preview is not worth a red build. Checked on what meta.json DECLARES — verifyPreview
     // drops missing files below and would hide a fourth entry that simply isn't there.
-    if (Array.isArray(declaredPreview.hero) && declaredPreview.hero.length > MAX_HERO_IMAGES) {
+    const heroCount = Array.isArray(declaredPreview.hero) ? declaredPreview.hero.length : 0;
+    if (heroCount > MAX_HERO_IMAGES) {
       console.warn(
-        `  ! ${slug}: preview declares ${declaredPreview.hero.length} hero images — showing the first ${MAX_HERO_IMAGES}, like the launcher`,
+        `  ! ${slug}: preview declares ${heroCount} hero images — showing the first ${MAX_HERO_IMAGES}, like the launcher`,
       );
-      declaredPreview.hero = declaredPreview.hero.slice(0, MAX_HERO_IMAGES);
     }
+    const shownPreview =
+      Array.isArray(declaredPreview.hero) && heroCount > MAX_HERO_IMAGES
+        ? { ...declaredPreview, hero: declaredPreview.hero.slice(0, MAX_HERO_IMAGES) }
+        : declaredPreview;
 
-    const preview = await verifyPreview(declaredPreview, entryDir, slug);
-    await warnOversizedGrid(preview.grid, entryDir, slug);
+    const preview = await verifyPreview(shownPreview, entryDir, slug);
+    await gatePreviewSizes(preview, entryDir, slug);
+    await warnMissingManifestAssets(manifest, entryDir, slug);
 
     // The WHOLE assets directory travels, not just what the preview names: this is also the directory a
     // human drops on their card, and the manifest references files the site never opens (save folders).
@@ -282,6 +437,7 @@ export async function buildCollectionFeed(root, dist) {
 
     // Feed URLs are relative TO THE FEED DIRECTORY (posix separators — these are URLs, not paths). The
     // client resolves them against the feed base; see FEED_BASE in src/collection.ts.
+    /** @type {FeedEntry} */
     const entry = {
       slug,
       title: meta.title,
@@ -295,7 +451,7 @@ export async function buildCollectionFeed(root, dist) {
     if (preview.grid !== null) entry.gridUrl = posix.join(slug, preview.grid);
     if (typeof meta.steamAppId === 'number') entry.steamAppId = meta.steamAppId;
     if (preview.music !== null) entry.music = posix.join(slug, preview.music);
-    Object.assign(entry, metadataOf(gamesOf(manifest)[0]));
+    Object.assign(entry, metadataOf(firstGame));
 
     entries.push(entry);
   }
